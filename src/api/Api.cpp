@@ -66,8 +66,9 @@ tl::BuildOptions build_options(const cs2tl_build_options *value) {
         return {};
     }
     sized(value);
-    tl::require((value->flags & ~(CS2TL_BUILD_ALL_COLLISION_GROUPS | CS2TL_BUILD_APPROXIMATE_HULLS)) == 0 &&
-                    value->reserved == 0 && value->leaf_size <= 64,
+    tl::require((value->flags & ~(CS2TL_BUILD_ALL_COLLISION_GROUPS | CS2TL_BUILD_APPROXIMATE_HULLS |
+                                  CS2TL_BUILD_IGNORE_BREAKABLES)) == 0 &&
+                    value->reserved == 0,
                 CS2TL_INVALID_ARGUMENT, "Invalid build options.");
     return {value->flags, value->leaf_size == 0 ? 4u : value->leaf_size};
 }
@@ -78,6 +79,31 @@ tl::Ray ray(const cs2tl_segment *value) {
 const char *path(const char *value) {
     tl::require(value && *value, CS2TL_INVALID_ARGUMENT, "Path is required.");
     return value;
+}
+std::vector<tl::PhysicsSource> physics_sources(const cs2tl_physics_source *sources, uint32_t count) {
+    tl::require(sources && count, CS2TL_INVALID_ARGUMENT, "Explicit physics sources are required.");
+    std::vector<tl::PhysicsSource> result;
+    result.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto &source = sources[i];
+        sized(&source);
+        tl::require((source.flags & ~CS2TL_SOURCE_BREAKABLE) == 0, CS2TL_INVALID_ARGUMENT,
+                    "Unknown physics source flags.");
+        tl::PhysicsSource item;
+        item.path = tl::utf8_path(path(source.path));
+        item.flags = source.flags;
+        for (size_t j = 0; j < 12; ++j) {
+            tl::require(std::isfinite(source.transform[j]), CS2TL_INVALID_ARGUMENT,
+                        "Nonfinite source transform.");
+            item.transform[j] = source.transform[j];
+        }
+        const auto &m = item.transform;
+        const double determinant = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[1] * (m[4] * m[10] - m[6] * m[8]) +
+                                   m[2] * (m[4] * m[9] - m[5] * m[8]);
+        tl::require(determinant != 0, CS2TL_INVALID_ARGUMENT, "Singular source transform.");
+        result.push_back(std::move(item));
+    }
+    return result;
 }
 template <class T>
 void copy_result(std::span<const T> values, T *buffer, uint32_t capacity, uint32_t *count) {
@@ -99,6 +125,37 @@ uint32_t CS2TL_CALL cs2tl_get_abi_version(void) {
 void CS2TL_CALL cs2tl_set_warning_callback(cs2tl_warning_callback callback, void *user) {
     tl::warning_callback = callback;
     tl::warning_user = user;
+}
+cs2tl_status CS2TL_CALL cs2tl_import_sources(const cs2tl_physics_source *sources, uint32_t count,
+                                             const cs2tl_build_options *options, cs2tl_scene **out,
+                                             cs2tl_error *error) {
+    if (out) {
+        *out = nullptr;
+    }
+    return guarded(error, [&] {
+        tl::require(out != nullptr, CS2TL_INVALID_ARGUMENT, "Output scene pointer is required.");
+        const auto inputs = physics_sources(sources, count);
+        auto scene =
+            std::make_unique<cs2tl_scene>(tl::import_physics_sources(inputs, build_options(options)));
+        *out = scene.release();
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_build_cache_sources(const cs2tl_physics_source *sources, uint32_t count,
+                                                  const char *output, const cs2tl_build_options *options,
+                                                  cs2tl_error *error) {
+    return guarded(error, [&] {
+        const auto inputs = physics_sources(sources, count);
+        const auto out = tl::utf8_path(path(output));
+        for (const auto &input : inputs) {
+            std::error_code ec;
+            tl::require(!std::filesystem::equivalent(input.path, out, ec) &&
+                            std::filesystem::weakly_canonical(input.path) !=
+                                std::filesystem::weakly_canonical(out),
+                        CS2TL_INVALID_ARGUMENT, "Input and output paths must differ.");
+        }
+        const auto scene = tl::import_physics_sources(inputs, build_options(options));
+        tl::save_cache(scene, out);
+    });
 }
 cs2tl_status CS2TL_CALL cs2tl_build_cache(const char *input, const char *output,
                                           const cs2tl_build_options *options, cs2tl_error *error) {

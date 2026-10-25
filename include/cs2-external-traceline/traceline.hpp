@@ -97,6 +97,17 @@ class scene {
             e);
         return scene(out);
     }
+    static scene from_sources(std::span<const cs2tl_physics_source> sources,
+                              const cs2tl_build_options *options = nullptr) {
+        if (sources.size() > UINT32_MAX) {
+            throw std::length_error("Source count exceeds uint32 representation.");
+        }
+        auto e = error_output();
+        cs2tl_scene *out{};
+        check(cs2tl_import_sources(sources.data(), static_cast<uint32_t>(sources.size()), options, &out, &e),
+              e);
+        return scene(out);
+    }
     void save(std::string_view path) const {
         auto e = error_output();
         check(cs2tl_save_scene(handle, std::string(path).c_str(), &e), e);

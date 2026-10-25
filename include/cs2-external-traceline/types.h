@@ -33,13 +33,27 @@ typedef struct cs2tl_error {
     char message[384]; /* UTF-8; copied into caller-owned memory. */
 } cs2tl_error;
 
-enum { CS2TL_BUILD_ALL_COLLISION_GROUPS = 1u << 0, CS2TL_BUILD_APPROXIMATE_HULLS = 1u << 1 };
+enum {
+    CS2TL_BUILD_ALL_COLLISION_GROUPS = 1u << 0,
+    CS2TL_BUILD_APPROXIMATE_HULLS = 1u << 1,
+    CS2TL_BUILD_IGNORE_BREAKABLES = 1u << 2
+};
 typedef struct cs2tl_build_options {
     uint32_t struct_size;
     uint32_t flags;
     uint32_t leaf_size; /* 0 selects 4; values above 64 produce a performance warning. */
     uint32_t reserved;
 } cs2tl_build_options;
+enum { CS2TL_SOURCE_BREAKABLE = 1u << 0 };
+/* Explicit independent PHYS text input. Classify BREAKABLE only from reliable
+ * entity/model metadata. Unknown sources remain present. The transform is
+ * row-major affine 3x4; identity is {1,0,0,0,0,1,0,0,0,0,1,0}. */
+typedef struct cs2tl_physics_source {
+    uint32_t struct_size;
+    uint32_t flags;
+    const char *path;
+    float transform[12];
+} cs2tl_physics_source;
 
 typedef struct cs2tl_triangle {
     cs2tl_vec3 a, b, c;

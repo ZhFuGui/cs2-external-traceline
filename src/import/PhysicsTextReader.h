@@ -55,5 +55,11 @@ std::vector<Triangle> decode_hull(const Value &descriptor, uint32_t object, bool
                                   bool &approximate);
 } // namespace cs2::traceline::text
 namespace cs2::traceline {
+struct PhysicsSource {
+    std::filesystem::path path;
+    uint32_t flags{};
+    std::array<double, 12> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+};
 Scene import_physics(const std::filesystem::path &path, BuildOptions options);
+Scene import_physics_sources(std::span<const PhysicsSource> sources, BuildOptions options);
 } // namespace cs2::traceline

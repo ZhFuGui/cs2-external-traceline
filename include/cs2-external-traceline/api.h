@@ -28,6 +28,15 @@ CS2TL_API uint32_t CS2TL_CALL cs2tl_get_abi_version(void);
  * for the callback duration; no warning history is retained by the DLL. */
 typedef void(CS2TL_CALL *cs2tl_warning_callback)(void *user, const char *message, uint64_t offset);
 CS2TL_API void CS2TL_CALL cs2tl_set_warning_callback(cs2tl_warning_callback callback, void *user);
+/* No directory lookup or implicit companion files. All sources and transforms
+ * are supplied by the caller. Default: breakables are intact and permanent. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_import_sources(const cs2tl_physics_source *sources, uint32_t count,
+                                                       const cs2tl_build_options *options,
+                                                       cs2tl_scene **out_scene, cs2tl_error *error);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_build_cache_sources(const cs2tl_physics_source *sources,
+                                                            uint32_t count, const char *output_path,
+                                                            const cs2tl_build_options *options,
+                                                            cs2tl_error *error);
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_build_cache(const char *input_path, const char *output_path,
                                                     const cs2tl_build_options *options, cs2tl_error *error);
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_load_scene(const char *cache_path, cs2tl_scene **out_scene,

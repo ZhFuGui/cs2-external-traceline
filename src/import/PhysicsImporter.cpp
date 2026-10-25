@@ -62,6 +62,9 @@ class Importer {
     std::vector<Triangle> triangles;
     std::vector<Primitive> primitives;
     std::vector<uint32_t> hashes;
+    std::vector<uint32_t> merged_hashes;
+    std::unordered_map<uint32_t, int32_t> merged_indices;
+    bool multiple{};
     uint32_t next_object{};
     bool approximate{}, found_shapes{};
     bool accept(const Value &descriptor, const Value *attributes) const {
@@ -166,6 +169,47 @@ class Importer {
 
   public:
     explicit Importer(BuildOptions value) : options(value) {}
+    void append(const Value &root, const Transform &pose) {
+        multiple = true;
+        hashes.clear();
+        const auto first_triangle = triangles.size(), first_primitive = primitives.size();
+        walk(root, nullptr, pose);
+        std::vector<int32_t> remap;
+        remap.reserve(hashes.size());
+        for (const auto hash : hashes) {
+            require(merged_hashes.size() <= INT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+                    "Merged surface indices exceed int32 representation.");
+            auto [it, inserted] =
+                merged_indices.try_emplace(hash, static_cast<int32_t>(merged_hashes.size()));
+            if (inserted) {
+                merged_hashes.push_back(hash);
+            }
+            remap.push_back(it->second);
+        }
+        bool missing = false;
+        auto surface = [&](int32_t &id) {
+            if (id < 0) {
+                return;
+            }
+            if (remap.empty()) {
+                id = CS2TL_UNKNOWN_SURFACE;
+                missing = true;
+                return;
+            }
+            require(static_cast<size_t>(id) < remap.size(), CS2TL_INVALID_GEOMETRY,
+                    "Source surface index exceeds property table.");
+            id = remap[id];
+        };
+        for (size_t i = first_triangle; i < triangles.size(); ++i) {
+            surface(triangles[i].surface);
+        }
+        for (size_t i = first_primitive; i < primitives.size(); ++i) {
+            surface(primitives[i].surface);
+        }
+        if (missing) {
+            warn("A source has no surface hashes; its material remains unknown.", root.offset);
+        }
+    }
     void walk(const Value &root, const Value *attributes = nullptr, const Transform &pose = {}) {
         struct Frame {
             const Value *node;
@@ -252,6 +296,9 @@ class Importer {
         }
     }
     Scene finish() {
+        if (multiple) {
+            hashes = std::move(merged_hashes);
+        }
         require(found_shapes, CS2TL_UNSUPPORTED_FORMAT, "No m_meshes/m_hulls arrays found in physics text.");
         if (!hashes.empty()) {
             for (const auto &t : triangles) {
@@ -286,6 +333,39 @@ Scene import_physics(const std::filesystem::path &path, BuildOptions options) {
     } // Release the text tree and input buffer before building topology/BVH.
     auto scene = importer.finish();
     scene.fingerprint = source_fingerprint;
+    return scene;
+}
+Scene import_physics_sources(std::span<const PhysicsSource> sources, BuildOptions options) {
+    require(!sources.empty(), CS2TL_INVALID_ARGUMENT, "At least one explicit physics source is required.");
+    const std::array<double, 12> identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+    if (sources.size() == 1 && sources[0].flags == 0 && sources[0].transform == identity) {
+        return import_physics(sources[0].path, options);
+    }
+    Importer importer(options);
+    std::vector<uint8_t> provenance;
+    bool included = false;
+    for (const auto &source : sources) {
+        if ((options.flags & CS2TL_BUILD_IGNORE_BREAKABLES) && (source.flags & CS2TL_SOURCE_BREAKABLE)) {
+            continue;
+        }
+        included = true;
+        const auto data = read_file(source.path);
+        require(!data.empty(), CS2TL_PARSE_ERROR, "Physics text is empty.");
+        auto root = text::parse(std::string_view(reinterpret_cast<const char *>(data.data()), data.size()));
+        importer.append(root, Transform{source.transform});
+        auto bytes = [&](uint64_t value) {
+            for (unsigned shift = 0; shift < 64; shift += 8) {
+                provenance.push_back(static_cast<uint8_t>(value >> shift));
+            }
+        };
+        bytes(fingerprint(data));
+        bytes(source.flags);
+        for (double value : source.transform) {
+            bytes(std::bit_cast<uint64_t>(value));
+        }
+    }
+    auto scene = included ? importer.finish() : build_scene({}, options);
+    scene.fingerprint = fingerprint(provenance);
     return scene;
 }
 } // namespace cs2::traceline
