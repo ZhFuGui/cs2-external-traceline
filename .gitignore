@@ -1,0 +1,25 @@
+# Default deny: only DLL sources and Visual Studio build inputs are versioned.
+/*
+!/.gitignore
+!/.editorconfig
+!/.clang-format
+!/cs2-external-traceline.sln
+!/cs2-external-traceline.vcxproj
+!/cs2-external-traceline.vcxproj.filters
+
+!/src/
+/src/**
+!/src/**/
+!/src/**/*.cpp
+!/src/**/*.h
+!/src/**/*.hpp
+
+!/include/
+/include/**
+!/include/**/
+!/include/**/*.h
+!/include/**/*.hpp
+
+!/build/
+/build/*
+!/build/Common.props

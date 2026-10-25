@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{8390F324-6B31-4C8D-A49F-6D2A59802FA9}</ProjectGuid>
+    <RootNamespace>cs2_external_traceline</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="build\Common.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>CS2TL_BUILD_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\api\Api.cpp" />
+    <ClCompile Include="src\api\DllMain.cpp" />
+    <ClCompile Include="src\geometry\Intersection.cpp" />
+    <ClCompile Include="src\scene\SceneBuilder.cpp" />
+    <ClCompile Include="src\bvh\BvhBuilder.cpp" />
+    <ClCompile Include="src\bvh\BvhTraversal.cpp" />
+    <ClCompile Include="src\trace\TraceQuery.cpp" />
+    <ClCompile Include="src\trace\TraversalIntervals.cpp" />
+    <ClCompile Include="src\import\PhysicsTextReader.cpp" />
+    <ClCompile Include="src\import\MeshDecoder.cpp" />
+    <ClCompile Include="src\import\HullDecoder.cpp" />
+    <ClCompile Include="src\import\PhysicsImporter.cpp" />
+    <ClCompile Include="src\storage\FileIO.cpp" />
+    <ClCompile Include="src\storage\CacheReader.cpp" />
+    <ClCompile Include="src\storage\CacheWriter.cpp" />
+    <ClCompile Include="src\ballistics\ShotSimulator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\cs2-external-traceline\api.h" />
+    <ClInclude Include="include\cs2-external-traceline\types.h" />
+    <ClInclude Include="include\cs2-external-traceline\traceline.hpp" />
+    <ClInclude Include="src\diagnostics\Error.h" />
+    <ClInclude Include="src\geometry\Vec3.h" />
+    <ClInclude Include="src\geometry\Aabb.h" />
+    <ClInclude Include="src\geometry\Intersection.h" />
+    <ClInclude Include="src\scene\Scene.h" />
+    <ClInclude Include="src\bvh\Bvh.h" />
+    <ClInclude Include="src\trace\TraceQuery.h" />
+    <ClInclude Include="src\import\PhysicsTextReader.h" />
+    <ClInclude Include="src\storage\FileIO.h" />
+    <ClInclude Include="src\storage\CacheFormat.h" />
+    <ClInclude Include="src\ballistics\WeaponProfile.h" />
+    <ClInclude Include="src\ballistics\SurfaceProfile.h" />
+    <ClInclude Include="src\ballistics\ShotSimulator.h" />
+    <ClInclude Include="src\profiles\Ruleset.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src" />
+    <Filter Include="src\api" />
+    <Filter Include="src\geometry" />
+    <Filter Include="src\scene" />
+    <Filter Include="src\bvh" />
+    <Filter Include="src\trace" />
+    <Filter Include="src\import" />
+    <Filter Include="src\storage" />
+    <Filter Include="src\ballistics" />
+    <Filter Include="include" />
+    <Filter Include="include\cs2-external-traceline" />
+    <Filter Include="src\diagnostics" />
+    <Filter Include="src\profiles" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\api\Api.cpp">
+      <Filter>src\api</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\DllMain.cpp">
+      <Filter>src\api</Filter>
+    </ClCompile>
+    <ClCompile Include="src\geometry\Intersection.cpp">
+      <Filter>src\geometry</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\SceneBuilder.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\bvh\BvhBuilder.cpp">
+      <Filter>src\bvh</Filter>
+    </ClCompile>
+    <ClCompile Include="src\bvh\BvhTraversal.cpp">
+      <Filter>src\bvh</Filter>
+    </ClCompile>
+    <ClCompile Include="src\trace\TraceQuery.cpp">
+      <Filter>src\trace</Filter>
+    </ClCompile>
+    <ClCompile Include="src\trace\TraversalIntervals.cpp">
+      <Filter>src\trace</Filter>
+    </ClCompile>
+    <ClCompile Include="src\import\PhysicsTextReader.cpp">
+      <Filter>src\import</Filter>
+    </ClCompile>
+    <ClCompile Include="src\import\MeshDecoder.cpp">
+      <Filter>src\import</Filter>
+    </ClCompile>
+    <ClCompile Include="src\import\HullDecoder.cpp">
+      <Filter>src\import</Filter>
+    </ClCompile>
+    <ClCompile Include="src\import\PhysicsImporter.cpp">
+      <Filter>src\import</Filter>
+    </ClCompile>
+    <ClCompile Include="src\storage\FileIO.cpp">
+      <Filter>src\storage</Filter>
+    </ClCompile>
+    <ClCompile Include="src\storage\CacheReader.cpp">
+      <Filter>src\storage</Filter>
+    </ClCompile>
+    <ClCompile Include="src\storage\CacheWriter.cpp">
+      <Filter>src\storage</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\ShotSimulator.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\cs2-external-traceline\api.h">
+      <Filter>include\cs2-external-traceline</Filter>
+    </ClInclude>
+    <ClInclude Include="include\cs2-external-traceline\types.h">
+      <Filter>include\cs2-external-traceline</Filter>
+    </ClInclude>
+    <ClInclude Include="include\cs2-external-traceline\traceline.hpp">
+      <Filter>include\cs2-external-traceline</Filter>
+    </ClInclude>
+    <ClInclude Include="src\diagnostics\Error.h">
+      <Filter>src\diagnostics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\geometry\Vec3.h">
+      <Filter>src\geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="src\geometry\Aabb.h">
+      <Filter>src\geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="src\geometry\Intersection.h">
+      <Filter>src\geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\Scene.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\bvh\Bvh.h">
+      <Filter>src\bvh</Filter>
+    </ClInclude>
+    <ClInclude Include="src\trace\TraceQuery.h">
+      <Filter>src\trace</Filter>
+    </ClInclude>
+    <ClInclude Include="src\import\PhysicsTextReader.h">
+      <Filter>src\import</Filter>
+    </ClInclude>
+    <ClInclude Include="src\storage\FileIO.h">
+      <Filter>src\storage</Filter>
+    </ClInclude>
+    <ClInclude Include="src\storage\CacheFormat.h">
+      <Filter>src\storage</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\WeaponProfile.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\SurfaceProfile.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\ShotSimulator.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\profiles\Ruleset.h">
+      <Filter>src\profiles</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
