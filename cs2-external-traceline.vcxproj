@@ -34,6 +34,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <PreprocessorDefinitions>CS2TL_BUILD_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary Condition="'$(Configuration)|$(Platform)'=='Release|x64'">MultiThreaded</RuntimeLibrary>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
