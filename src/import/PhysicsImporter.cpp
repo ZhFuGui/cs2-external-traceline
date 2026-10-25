@@ -73,7 +73,35 @@ class Importer {
         for (char &c : name) {
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
-        return name == "default";
+        const auto &attribute = attributes->children[static_cast<size_t>(n)];
+        auto tagged = [&](std::string_view field, std::string_view tag) {
+            const auto *values = attribute.get(field);
+            if (!values) {
+                return false;
+            }
+            require(values->kind == Kind::array, CS2TL_PARSE_ERROR, "Collision tags must be an array.",
+                    values->offset);
+            return std::any_of(values->children.begin(), values->children.end(), [&](const auto &value) {
+                std::string label = value.scalar;
+                for (char &c : label) {
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                }
+                return label == tag;
+            });
+        };
+        if (tagged("m_InteractAsStrings", "passbullets") || tagged("m_InteractExcludeStrings", "bullet") ||
+            tagged("m_InteractExcludeStrings", "bullets")) {
+            return false;
+        }
+        if (name == "default") {
+            return true;
+        }
+        // Source game scripts/collision_properties.txt explicitly describes
+        // window and these solid tags as solid. Player/nav/grenade-only clips,
+        // trigger volumes and sound-only blockers must not become cover.
+        return name == "conditionallysolid" &&
+               (tagged("m_InteractAsStrings", "window") || tagged("m_InteractAsStrings", "contents_solid") ||
+                tagged("m_InteractAsStrings", "contents_solid_no_block_los"));
     }
     void shapes(const Value &array, bool hull, const Value *attributes, const Transform &pose) {
         found_shapes = true;
