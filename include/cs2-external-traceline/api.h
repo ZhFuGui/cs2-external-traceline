@@ -170,6 +170,33 @@ CS2TL_API cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(
     const cs2tl_ballistics *context, const cs2tl_remaining_damage_request *request,
     cs2tl_shot_prediction *out, cs2tl_error *error);
 
+/* Defaults come from the binary-audited build and carry no LIVE_SNAPSHOT flag.
+ * Replace fields with actual match values and set LIVE_SNAPSHOT when verified.
+ * NULL rules select these same defaults; predictions mark assumed rules. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_default_damage_rules(cs2tl_damage_rules *out, cs2tl_error *error);
+/* One ordinary bullet/pellet hitting another player. incoming_damage already
+ * includes distance/penetration loss; this entry point performs no geometry or
+ * file I/O. Snapshot pointers are borrowed only for this call. Inputs describe
+ * the actual first target impact, not a bone center or a hit probability.
+ * Unknown fractional damage state produces health-loss bounds, never a guessed
+ * exact loss. Flags describe this target stage; retain the incoming flight's
+ * flags separately, or use calculate_shot_damage to propagate both stages.
+ * Native damage filters/plugins and other live bodies along the ray
+ * are not modeled. Read flags for version, snapshot and validation scope. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_calculate_target_damage(const cs2tl_profiles *profiles,
+                                                                const cs2tl_target_damage_request *request,
+                                                                cs2tl_target_damage_result *out,
+                                                                cs2tl_error *error);
+/* Performs exactly one existing static-world penetration query, then the same
+ * target calculation. segment.end must be the first actual target hit position.
+ * A stopped projectile produces zero target damage and preserves target state.
+ * Geometry/profile errors leave both results NOT_COMPUTED. All old APIs and
+ * structures keep their existing meaning, including simulate_shot's NULL target. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_calculate_shot_damage(const cs2tl_ballistics *context,
+                                                              const cs2tl_shot_damage_request *request,
+                                                              cs2tl_shot_damage_result *out,
+                                                              cs2tl_error *error);
+
 #ifdef __cplusplus
 }
 #endif

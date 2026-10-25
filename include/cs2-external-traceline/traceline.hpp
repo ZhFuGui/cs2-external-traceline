@@ -152,6 +152,13 @@ class scene {
         check(cs2tl_release_query_memory(handle, &e), e);
     }
 };
+inline cs2tl_damage_rules damage_rule_defaults() {
+    auto error = error_output();
+    cs2tl_damage_rules out{};
+    out.struct_size = sizeof(out);
+    check(cs2tl_default_damage_rules(&out, &error), error);
+    return out;
+}
 class profiles {
     cs2tl_profiles *handle{};
     explicit profiles(cs2tl_profiles *value) : handle(value) {}
@@ -170,6 +177,13 @@ class profiles {
         return *this;
     }
     cs2tl_profiles *native_handle() const noexcept { return handle; }
+    cs2tl_target_damage_result target_damage(const cs2tl_target_damage_request &request) const {
+        auto error = error_output();
+        cs2tl_target_damage_result out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_calculate_target_damage(handle, &request, &out, &error), error);
+        return out;
+    }
     static profiles load(std::string_view path) {
         auto error = error_output();
         cs2tl_profiles *out{};
@@ -248,6 +262,13 @@ class ballistics_context {
         return ballistics_context(out);
     }
     cs2tl_ballistics *native_handle() const noexcept { return handle; }
+    cs2tl_shot_damage_result shot_damage(const cs2tl_shot_damage_request &request) const {
+        auto error = error_output();
+        cs2tl_shot_damage_result out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_calculate_shot_damage(handle, &request, &out, &error), error);
+        return out;
+    }
     cs2tl_ballistics_info info() const {
         auto error = error_output();
         cs2tl_ballistics_info out{};

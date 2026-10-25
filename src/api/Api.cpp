@@ -1,5 +1,6 @@
 #include "cs2-external-traceline/api.h"
 #include "ballistics/ShotSimulator.h"
+#include "ballistics/TargetDamage.h"
 #include "diagnostics/Error.h"
 #include "import/PhysicsTextReader.h"
 #include "profiles/BallisticsProfiles.h"
@@ -561,5 +562,83 @@ cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(const cs2tl_ballistics 
         tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}}, lease.get(),
                                       *out);
         out->flags = data.info.flags;
+    });
+}
+namespace {
+uint32_t target_version_flags(const tl::BallisticsProfiles &profiles, const cs2tl_damage_rules &rules) {
+    const bool matches = profiles.info.steam_build_id == tl::audited_steam_build &&
+                         (profiles.info.flags & CS2TL_PROFILES_BUILD_MISMATCH) == 0 &&
+                         rules.steam_build_id == tl::audited_steam_build;
+    return matches ? CS2TL_PREDICTION_BINARY_RULES_AUDITED : CS2TL_PREDICTION_BUILD_MISMATCH;
+}
+const cs2tl_damage_rules &damage_rules(const cs2tl_damage_rules *rules) {
+    static const auto defaults = tl::default_damage_rules();
+    if (rules) {
+        sized(rules);
+    }
+    return rules ? *rules : defaults;
+}
+} // namespace
+cs2tl_status CS2TL_CALL cs2tl_default_damage_rules(cs2tl_damage_rules *out, cs2tl_error *error) {
+    return guarded(error, [&] {
+        sized(out);
+        *out = tl::default_damage_rules();
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_calculate_target_damage(const cs2tl_profiles *profiles,
+                                                      const cs2tl_target_damage_request *request,
+                                                      cs2tl_target_damage_result *out, cs2tl_error *error) {
+    if (out && out->struct_size >= sizeof(*out)) {
+        tl::reset_target_damage(*out);
+    }
+    return guarded(error, [&] {
+        sized(request);
+        sized(out);
+        sized(request->target);
+        tl::require(request->reserved == 0, CS2TL_INVALID_ARGUMENT, "Unknown target-damage request flags.");
+        const auto &data = checked_profiles(profiles);
+        tl::require(data.info.ruleset_version == CS2TL_RULESET_CS2_STATIC_V1, CS2TL_NOT_IMPLEMENTED,
+                    "Profile package requests an unsupported damage ruleset.");
+        const auto &weapon = data.weapon(request->weapon_id, request->fire_mode).profile;
+        const auto &rules = damage_rules(request->rules);
+        cs2tl_target_damage_result computed{};
+        computed.struct_size = out->struct_size;
+        tl::calculate_target_damage(weapon, request->incoming_damage, request->attacker_team,
+                                    *request->target, rules, computed);
+        computed.flags |= target_version_flags(data, rules);
+        *out = computed;
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_calculate_shot_damage(const cs2tl_ballistics *context,
+                                                    const cs2tl_shot_damage_request *request,
+                                                    cs2tl_shot_damage_result *out, cs2tl_error *error) {
+    if (out && out->struct_size >= sizeof(*out)) {
+        tl::reset_shot_damage(*out);
+    }
+    return guarded(error, [&] {
+        sized(request);
+        sized(out);
+        sized(request->target);
+        const auto &data = checked_ballistics(context);
+        tl::require(data.profiles->info.ruleset_version == CS2TL_RULESET_CS2_STATIC_V1, CS2TL_NOT_IMPLEMENTED,
+                    "Profile package requests an unsupported damage ruleset.");
+        const auto &weapon = data.profiles->weapon(request->weapon_id, request->fire_mode).profile;
+        const auto &rules = damage_rules(request->rules);
+        const auto query = ray(&request->segment);
+        cs2tl_shot_damage_result computed{};
+        computed.struct_size = out->struct_size;
+        tl::reset_shot_damage(computed);
+        tl::QueryLease lease(data.scene->workspaces);
+        tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}}, lease.get(),
+                                      computed.flight);
+        computed.flight.flags = data.info.flags;
+        tl::calculate_target_damage(weapon, computed.flight.remaining_damage, request->attacker_team,
+                                    *request->target, rules, computed.target);
+        computed.target.flags |= data.info.flags | target_version_flags(*data.profiles, rules);
+        if (computed.flight.outcome == CS2TL_SHOT_STOPPED) {
+            computed.target.outcome = CS2TL_DAMAGE_BLOCKED;
+            computed.target.block_reason = CS2TL_DAMAGE_BLOCK_PROJECTILE_STOPPED;
+        }
+        *out = computed;
     });
 }

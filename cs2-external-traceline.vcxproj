@@ -55,6 +55,7 @@
     <ClCompile Include="src\storage\CacheReader.cpp" />
     <ClCompile Include="src\storage\CacheWriter.cpp" />
     <ClCompile Include="src\ballistics\ShotSimulator.cpp" />
+    <ClCompile Include="src\ballistics\TargetDamage.cpp" />
     <ClCompile Include="src\profiles\BallisticsProfiles.cpp" />
     <ClCompile Include="src\storage\ProfileReader.cpp" />
   </ItemGroup>
@@ -75,6 +76,7 @@
     <ClInclude Include="src\ballistics\WeaponProfile.h" />
     <ClInclude Include="src\ballistics\SurfaceProfile.h" />
     <ClInclude Include="src\ballistics\ShotSimulator.h" />
+    <ClInclude Include="src\ballistics\TargetDamage.h" />
     <ClInclude Include="src\profiles\Ruleset.h" />
     <ClInclude Include="src\profiles\BallisticsProfiles.h" />
   </ItemGroup>

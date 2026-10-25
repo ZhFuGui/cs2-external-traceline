@@ -214,3 +214,82 @@ typedef struct cs2tl_shot_prediction {
     float remaining_damage;
     uint32_t penetration_count, stop_reason, ruleset_version, flags, reserved;
 } cs2tl_shot_prediction;
+
+enum {
+    CS2TL_HITGROUP_GENERIC = 0u,
+    CS2TL_HITGROUP_HEAD = 1u,
+    CS2TL_HITGROUP_CHEST = 2u,
+    CS2TL_HITGROUP_STOMACH = 3u,
+    CS2TL_HITGROUP_LEFT_ARM = 4u,
+    CS2TL_HITGROUP_RIGHT_ARM = 5u,
+    CS2TL_HITGROUP_LEFT_LEG = 6u,
+    CS2TL_HITGROUP_RIGHT_LEG = 7u,
+    CS2TL_HITGROUP_NECK = 8u,
+    CS2TL_HITGROUP_UNUSED = 9u,
+    CS2TL_HITGROUP_GEAR = 10u,
+    CS2TL_HITGROUP_SPECIAL = 11u
+};
+enum { CS2TL_TEAM_T = 2u, CS2TL_TEAM_CT = 3u };
+enum { CS2TL_TARGET_HAS_HELMET = 1u, CS2TL_TARGET_IMMUNE = 2u, CS2TL_TARGET_ACCUMULATOR_KNOWN = 4u };
+/* A snapshot of another player at the supplied impact. The caller determines
+ * hit_group and immunity. Fractional damage is server state, not derivable from
+ * integer health. With ACCUMULATOR_KNOWN, damage_accumulator is in [0,1).
+ * Otherwise it is ignored and the result reports conservative health bounds. */
+typedef struct cs2tl_target_state {
+    uint32_t struct_size, hit_group;
+    int32_t health, armor;
+    uint32_t team, flags;
+    float damage_accumulator;
+    uint32_t reserved;
+} cs2tl_target_state;
+enum { CS2TL_DAMAGE_RULES_LIVE_SNAPSHOT = 1u };
+typedef struct cs2tl_damage_rules {
+    uint32_t struct_size, flags;
+    uint64_t steam_build_id;
+    float ct_head_scale, ct_body_scale, t_head_scale, t_body_scale;
+    float friendly_bullet_scale;
+    uint32_t friendly_fire, teammates_are_enemies, headshots_only;
+} cs2tl_damage_rules;
+typedef struct cs2tl_target_damage_request {
+    uint32_t struct_size, weapon_id, fire_mode, attacker_team;
+    float incoming_damage;
+    uint32_t reserved;
+    const cs2tl_target_state *target;
+    const cs2tl_damage_rules *rules; /* NULL selects explicitly flagged defaults. */
+} cs2tl_target_damage_request;
+enum { CS2TL_DAMAGE_NOT_COMPUTED = 0u, CS2TL_DAMAGE_EVALUATED = 1u, CS2TL_DAMAGE_BLOCKED = 2u };
+enum {
+    CS2TL_DAMAGE_BLOCK_NONE = 0u,
+    CS2TL_DAMAGE_BLOCK_DEAD = 1u,
+    CS2TL_DAMAGE_BLOCK_IMMUNE = 2u,
+    CS2TL_DAMAGE_BLOCK_FRIENDLY_FIRE = 3u,
+    CS2TL_DAMAGE_BLOCK_HEADSHOTS_ONLY = 4u,
+    CS2TL_DAMAGE_BLOCK_PROJECTILE_STOPPED = 5u
+};
+enum { CS2TL_PREDICTION_ASSUMED_DAMAGE_RULES = 32u, CS2TL_PREDICTION_UNKNOWN_DAMAGE_ACCUMULATOR = 64u };
+/* health_damage/armor_damage preserve float32 damage before integer accounting.
+ * Health bounds are equal for an exact result. lethal is guaranteed; a boundary
+ * depending on unknown fractional state sets possible_lethal instead. Accumulator
+ * after is NaN when its input is unknown. Errors use NaN, UINT32_MAX loss bounds
+ * and -1 remaining values; always check status/outcome before reading fields. */
+typedef struct cs2tl_target_damage_result {
+    uint32_t struct_size, outcome;
+    float incoming_damage, scaled_damage, health_damage, armor_damage;
+    float damage_accumulator_after;
+    uint32_t armor_loss;
+    int32_t armor_after;
+    uint32_t health_loss_min, health_loss_max;
+    int32_t health_after_min, health_after_max;
+    uint32_t lethal, possible_lethal, block_reason, ruleset_version, flags;
+} cs2tl_target_damage_result;
+typedef struct cs2tl_shot_damage_request {
+    uint32_t struct_size, weapon_id, fire_mode, attacker_team;
+    cs2tl_segment segment;
+    const cs2tl_target_state *target;
+    const cs2tl_damage_rules *rules;
+} cs2tl_shot_damage_request;
+typedef struct cs2tl_shot_damage_result {
+    uint32_t struct_size, reserved;
+    cs2tl_shot_prediction flight;
+    cs2tl_target_damage_result target;
+} cs2tl_shot_damage_result;

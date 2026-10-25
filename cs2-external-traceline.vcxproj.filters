@@ -73,6 +73,9 @@
     <ClCompile Include="src\ballistics\ShotSimulator.cpp">
       <Filter>src\ballistics</Filter>
     </ClCompile>
+    <ClCompile Include="src\ballistics\TargetDamage.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\cs2-external-traceline\api.h">
@@ -121,6 +124,9 @@
       <Filter>src\ballistics</Filter>
     </ClInclude>
     <ClInclude Include="src\ballistics\ShotSimulator.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\TargetDamage.h">
       <Filter>src\ballistics</Filter>
     </ClInclude>
     <ClInclude Include="src\profiles\BallisticsProfiles.h">
