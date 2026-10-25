@@ -35,23 +35,34 @@ inline uint32_t hit_solid(const Scene &scene, const Hit &hit) {
 inline int32_t hit_surface(const Scene &scene, const Hit &hit) {
     return hit.curved() ? scene.primitives[hit.triangle].surface : scene.triangles[hit.triangle].surface;
 }
+struct PreciseInterval {
+    double entry_distance{}, exit_distance{};
+    uint32_t flags{};
+    int32_t entry_surface_id{}, exit_surface_id{};
+    uint32_t solid_id{};
+};
 struct QueryWorkspace {
     std::vector<Hit> raw_hits, hits;
     std::vector<uint32_t> candidates, inside;
     std::vector<cs2tl_interval> intervals;
+    std::vector<PreciseInterval> precise_intervals;
     void clear_results() noexcept {
         raw_hits.clear();
         hits.clear();
         candidates.clear();
         inside.clear();
         intervals.clear();
+        precise_intervals.clear();
     }
     size_t retained_bytes() const {
         return (raw_hits.capacity() + hits.capacity()) * sizeof(Hit) +
                (candidates.capacity() + inside.capacity()) * sizeof(uint32_t) +
-               intervals.capacity() * sizeof(cs2tl_interval);
+               intervals.capacity() * sizeof(cs2tl_interval) +
+               precise_intervals.capacity() * sizeof(PreciseInterval);
     }
 };
+std::span<const PreciseInterval> query_precise_intervals_into(const Scene &scene, const Ray &ray,
+                                                              QueryWorkspace &workspace);
 // A scene owns its workspaces. The pool grows only with simultaneous queries,
 // including reentrancy, not with thread churn or query history.
 class QueryWorkspacePool {

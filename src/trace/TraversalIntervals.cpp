@@ -2,14 +2,21 @@
 #include "bvh/Bvh.h"
 #include "diagnostics/Error.h"
 #include <algorithm>
+#include <type_traits>
 
 namespace cs2::traceline {
-template <bool Curved>
-std::span<const cs2tl_interval> query_intervals_impl(const Scene &scene, const Ray &ray,
-                                                     QueryWorkspace &workspace) {
+template <bool Curved, bool Precise = false>
+std::span<const std::conditional_t<Precise, PreciseInterval, cs2tl_interval>>
+query_intervals_impl(const Scene &scene, const Ray &ray, QueryWorkspace &workspace) {
     require((scene.flags & CS2TL_SCENE_APPROXIMATE) == 0, CS2TL_INCOMPLETE_GEOMETRY,
             "Exact thickness is unavailable for a scene containing approximated hulls.");
-    auto &result = workspace.intervals;
+    auto &result = [&]() -> auto & {
+        if constexpr (Precise) {
+            return workspace.precise_intervals;
+        } else {
+            return workspace.intervals;
+        }
+    }();
     result.clear();
     auto &candidates = workspace.candidates;
     candidates.clear();
@@ -72,9 +79,14 @@ std::span<const cs2tl_interval> query_intervals_impl(const Scene &scene, const R
             if (!contains_as<Curved>(scene, solid, ray.at(entry + (exit - entry) * 0.5))) {
                 return;
             }
-            result.push_back({static_cast<float>(entry), static_cast<float>(exit),
-                              static_cast<float>(exit - entry), flags | extra_flags, ray.at(entry).external(),
-                              ray.at(exit).external(), entry_surface, exit_surface, solid.object, id});
+            if constexpr (Precise) {
+                result.push_back({entry, exit, flags | extra_flags, entry_surface, exit_surface, id});
+            } else {
+                result.push_back({static_cast<float>(entry), static_cast<float>(exit),
+                                  static_cast<float>(exit - entry), flags | extra_flags,
+                                  ray.at(entry).external(), ray.at(exit).external(), entry_surface,
+                                  exit_surface, solid.object, id});
+            }
         };
         for (const auto &event : events) {
             const uint32_t kind = Curved ? event.type() : event.kind;
@@ -110,6 +122,11 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
                                                      QueryWorkspace &workspace) {
     return !scene.extended_queries ? query_intervals_impl<false>(scene, ray, workspace)
                                    : query_intervals_impl<true>(scene, ray, workspace);
+}
+std::span<const PreciseInterval> query_precise_intervals_into(const Scene &scene, const Ray &ray,
+                                                              QueryWorkspace &workspace) {
+    return !scene.extended_queries ? query_intervals_impl<false, true>(scene, ray, workspace)
+                                   : query_intervals_impl<true, true>(scene, ray, workspace);
 }
 std::vector<cs2tl_interval> query_intervals(const Scene &scene, const Ray &ray) {
     QueryWorkspace workspace;
