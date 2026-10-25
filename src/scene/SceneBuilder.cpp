@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 #include <limits>
+#include <memory_resource>
 #include <numeric>
 #include <unordered_map>
 
@@ -25,6 +26,10 @@ struct VertexHash {
 struct Edge {
     uint32_t first{}, second{UINT32_MAX}, count{};
     bool first_forward{}, second_forward{};
+};
+struct Neighbor {
+    uint32_t triangle{};
+    bool parity{};
 };
 class Components {
     std::vector<uint32_t> parent, rank;
@@ -72,9 +77,16 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
     const auto count = static_cast<uint32_t>(tris.size());
     {
         Components components(count);
-        std::unordered_map<VertexKey, uint32_t, VertexHash> vertices;
-        std::unordered_map<uint64_t, Edge> edges;
-        std::vector<std::vector<std::pair<uint32_t, bool>>> adjacent(count);
+        // Only construction temporaries use this arena; no Scene allocation
+        // refers to it after this scope. Buckets are reserved before inserts.
+        std::pmr::monotonic_buffer_resource arena;
+        std::pmr::unordered_map<VertexKey, uint32_t, VertexHash> vertices(&arena);
+        std::pmr::unordered_map<uint64_t, Edge> edges(&arena);
+        vertices.reserve(count);
+        edges.reserve(size_t(count) * 2);
+        // A triangle has three edges, each contributing at most one neighbor.
+        std::vector<std::array<Neighbor, 3>> adjacent(count);
+        std::vector<uint8_t> adjacent_counts(count);
 
         for (uint32_t i = 0; i < count; ++i) {
             auto &tri = tris[i];
@@ -118,23 +130,34 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
                 ++edge.count;
             }
         }
-        std::unordered_map<uint32_t, uint32_t> solid_ids;
+        std::vector<uint32_t> solid_ids(count, CS2TL_INVALID_ID), solid_sizes;
         for (uint32_t i = 0; i < count; ++i) {
             const auto root = components.find(i);
-            const auto [it, inserted] =
-                solid_ids.try_emplace(root, static_cast<uint32_t>(scene.solids.size()));
-            if (inserted) {
+            if (solid_ids[root] == CS2TL_INVALID_ID) {
+                solid_ids[root] = static_cast<uint32_t>(scene.solids.size());
                 Solid solid;
                 solid.object = tris[i].object;
                 solid.closed = true;
                 scene.solids.push_back(std::move(solid));
+                solid_sizes.push_back(0);
             }
-            const uint32_t solid_id = it->second;
+            const uint32_t solid_id = solid_ids[root];
             tris[i].solid = solid_id;
             auto &solid = scene.solids[solid_id];
-            solid.triangles.push_back(i);
+            ++solid_sizes[solid_id];
             solid.bounds.extend(tris[i].bounds());
         }
+        for (size_t i = 0; i < scene.solids.size(); ++i) {
+            scene.solids[i].triangles.reserve(solid_sizes[i]);
+        }
+        for (uint32_t i = 0; i < count; ++i) {
+            scene.solids[tris[i].solid].triangles.push_back(i);
+        }
+        auto add_neighbor = [&](uint32_t from, uint32_t to, bool parity) {
+            auto &size = adjacent_counts[from];
+            require(size < 3, CS2TL_INTERNAL_ERROR, "Triangle adjacency exceeds three edges.");
+            adjacent[from][size++] = {to, parity};
+        };
         for (const auto &[key, edge] : edges) {
             (void)key;
             if (edge.count != 2) {
@@ -142,8 +165,8 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
                 continue;
             }
             const bool parity = edge.first_forward == edge.second_forward;
-            adjacent[edge.first].emplace_back(edge.second, parity);
-            adjacent[edge.second].emplace_back(edge.first, parity);
+            add_neighbor(edge.first, edge.second, parity);
+            add_neighbor(edge.second, edge.first, parity);
         }
         std::vector<int8_t> flips(count, -1);
         std::vector<uint32_t> stack;
@@ -156,7 +179,8 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
             while (!stack.empty()) {
                 const uint32_t i = stack.back();
                 stack.pop_back();
-                for (const auto &[next, parity] : adjacent[i]) {
+                for (uint8_t neighbor = 0; neighbor < adjacent_counts[i]; ++neighbor) {
+                    const auto [next, parity] = adjacent[i][neighbor];
                     const int8_t desired = static_cast<int8_t>(flips[i] ^ static_cast<int8_t>(parity));
                     if (flips[next] == -1) {
                         flips[next] = desired;
