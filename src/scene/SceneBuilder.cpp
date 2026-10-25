@@ -2,6 +2,7 @@
 #include "bvh/Bvh.h"
 #include "diagnostics/Error.h"
 #include "geometry/Intersection.h"
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <limits>
@@ -68,7 +69,8 @@ uint32_t bits(double value) {
 } // namespace
 
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool build_acceleration,
-                  std::vector<Primitive> primitives, bool preserve_orientation) {
+                  std::vector<Primitive> primitives, bool preserve_orientation,
+                  std::vector<uint32_t> native_surface_objects) {
     require(triangles.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
             "Triangle indices exceed uint32 representation.");
     if (triangles.size() > large_triangle_notice) {
@@ -79,6 +81,13 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
         warn("Large BVH leaf size (>64) may reduce query performance; processing continues.");
     }
     Scene scene;
+    require(std::is_sorted(native_surface_objects.begin(), native_surface_objects.end()) &&
+                std::adjacent_find(native_surface_objects.begin(), native_surface_objects.end()) ==
+                    native_surface_objects.end() &&
+                (native_surface_objects.empty() || native_surface_objects.back() != CS2TL_INVALID_ID),
+            CS2TL_INVALID_GEOMETRY, "Native surface object identifiers must be sorted and unique.");
+    scene.native_surface_objects = std::move(native_surface_objects);
+    std::vector<bool> surface_objects_seen(scene.native_surface_objects.size());
     scene.leaf_size = options.leaf_size;
     scene.triangles = std::move(triangles);
     auto &tris = scene.triangles;
@@ -146,6 +155,12 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
                 Solid solid;
                 solid.object = tris[i].object;
                 solid.closed = true;
+                const auto source = std::lower_bound(scene.native_surface_objects.begin(),
+                                                     scene.native_surface_objects.end(), solid.object);
+                if (source != scene.native_surface_objects.end() && *source == solid.object) {
+                    solid.native_surface_mesh = true;
+                    surface_objects_seen[source - scene.native_surface_objects.begin()] = true;
+                }
                 scene.solids.push_back(std::move(solid));
                 solid_sizes.push_back(0);
             }
@@ -228,6 +243,9 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
             }
         }
     }
+    require(
+        std::all_of(surface_objects_seen.begin(), surface_objects_seen.end(), [](bool seen) { return seen; }),
+        CS2TL_INVALID_GEOMETRY, "Native surface provenance references an absent mesh object.");
     scene.query_triangles.reserve(count);
     scene.triangle_normals.reserve(count);
     for (const auto &tri : tris) {

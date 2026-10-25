@@ -126,7 +126,9 @@ void build_query_indices(Scene &scene) {
                 scene.object_nodes, scene.object_order, group.root,
                 [&](const Aabb &bounds) { return bounds.contains(solid.bounds); },
                 [&](uint32_t other) {
-                    if (other != id && scene.solids[other].bounds.contains(solid.bounds)) {
+                    const auto &candidate = scene.solids[other];
+                    if (other != id && !(candidate.native_surface_mesh && !candidate.closed) &&
+                        candidate.bounds.contains(solid.bounds)) {
                         solid.container = other;
                         return false;
                     }

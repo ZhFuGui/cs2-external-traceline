@@ -81,8 +81,12 @@ CS2TL_API cs2tl_status CS2TL_CALL cs2tl_trace_all(const cs2tl_scene *scene, cons
                                                   cs2tl_hit *hits, uint32_t capacity, uint32_t *out_count,
                                                   cs2tl_error *error);
 
-/* Exact intervals require closed, orientable geometry; open/nonmanifold geometry
- * on the query path returns INCOMPLETE_GEOMETRY without fabricated thickness.
+/* Exact volume intervals require closed, orientable geometry. Physics imports
+ * retain explicit native m_meshes provenance (cache v3). An open native surface
+ * component without a surface hit contributes no interval; an actual hit still
+ * returns INCOMPLETE_GEOMETRY without fabricated thickness. Raw triangles and
+ * v1/v2 caches have no such provenance: overlapping untyped open-component bounds
+ * remain incomplete. Rebuild old native caches from explicit physics-text paths.
  * Same-object nested component bounds are conservatively rejected as ambiguous
  * cavities. Intervals of overlapping independent solids remain separate. Closed solids are assumed
  * simple (not self-intersecting); the importer validates edge topology only. */

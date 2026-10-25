@@ -61,6 +61,7 @@ class Importer {
     BuildOptions options;
     std::vector<Triangle> triangles;
     std::vector<Primitive> primitives;
+    std::vector<uint32_t> native_surface_objects;
     std::vector<uint32_t> hashes;
     std::vector<uint32_t> merged_hashes;
     std::unordered_map<uint32_t, int32_t> merged_indices;
@@ -129,6 +130,9 @@ class Importer {
                      : text::decode_mesh(descriptor, object);
             require(triangles.size() + decoded.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
                     "Scene indices exceed uint32 representation.", descriptor.offset);
+            if (!hull && !decoded.empty()) {
+                native_surface_objects.push_back(object);
+            }
             for (auto &t : decoded) {
                 t.a = pose.apply(t.a);
                 t.b = pose.apply(t.b);
@@ -311,7 +315,8 @@ class Importer {
                         "Primitive surface identifier exceeds surface property table.");
             }
         }
-        auto scene = build_scene(std::move(triangles), options, true, std::move(primitives));
+        auto scene = build_scene(std::move(triangles), options, true, std::move(primitives), false,
+                                 std::move(native_surface_objects));
         scene.surface_hashes = std::move(hashes);
         if (approximate) {
             scene.flags |= CS2TL_SCENE_APPROXIMATE;

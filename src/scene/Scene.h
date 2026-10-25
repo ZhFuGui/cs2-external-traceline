@@ -24,6 +24,7 @@ struct Triangle {
 struct Solid {
     uint32_t object{};
     bool closed{};
+    bool native_surface_mesh{};
     Aabb bounds;
     std::vector<uint32_t> triangles;
     uint32_t group{CS2TL_INVALID_ID};
@@ -87,9 +88,13 @@ struct Scene {
     std::vector<Primitive> primitives;
     std::vector<IndexNode> primitive_nodes;
     std::vector<uint32_t> primitive_order;
+    // Explicit m_meshes provenance from physics text. Legacy caches and raw
+    // triangle APIs do not establish native surface-collider semantics.
+    std::vector<uint32_t> native_surface_objects;
     bool deep_bvh{}; // Unusually deep external caches use traversal stack spill.
     bool extended_queries{};
 };
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true,
-                  std::vector<Primitive> primitives = {}, bool preserve_orientation = false);
+                  std::vector<Primitive> primitives = {}, bool preserve_orientation = false,
+                  std::vector<uint32_t> native_surface_objects = {});
 } // namespace cs2::traceline

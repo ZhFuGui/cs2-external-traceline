@@ -99,25 +99,29 @@ Scene load_cache(const std::filesystem::path &path) {
     reader.position = 8;
     const uint32_t version = reader.u32(), header_size = reader.u32();
     require((version == cache_version && header_size == cache_header_size) ||
-                (version == curved_cache_version && header_size == curved_cache_header_size),
+                ((version == curved_cache_version || version == surface_cache_version) &&
+                 header_size == curved_cache_header_size),
             CS2TL_UNSUPPORTED_FORMAT, "Unsupported cache version.", 8);
     const uint32_t flags = reader.u32(), leaf_size = reader.u32();
     const uint32_t triangles_count = reader.u32(), nodes_count = reader.u32(), order_count = reader.u32(),
                    hash_count = reader.u32();
     const uint64_t source = reader.u64(), payload_size = reader.u64(), checksum = reader.u64();
-    uint32_t primitive_count = 0;
-    if (version == curved_cache_version) {
+    uint32_t primitive_count = 0, native_surface_count = 0;
+    if (version == curved_cache_version || version == surface_cache_version) {
         primitive_count = reader.u32();
-        require(reader.u32() == 0, CS2TL_CORRUPT_CACHE, "Invalid cache reserved field.");
+        native_surface_count = reader.u32();
+        require(version == surface_cache_version || native_surface_count == 0, CS2TL_CORRUPT_CACHE,
+                "Invalid cache reserved field.");
     }
     require((flags & ~(CS2TL_SCENE_APPROXIMATE | CS2TL_SCENE_HAS_OPEN_GEOMETRY)) == 0 && leaf_size >= 1,
             CS2TL_CORRUPT_CACHE, "Invalid cache flags/build options.", 16);
     const uint64_t expected = uint64_t(triangles_count) * 44 + uint64_t(nodes_count) * 40 +
                               uint64_t(order_count) * 4 + uint64_t(hash_count) * 4 +
-                              uint64_t(primitive_count) * 84;
+                              uint64_t(primitive_count) * 84 + uint64_t(native_surface_count) * 4;
     require(nodes_count <= uint64_t(triangles_count) * 2 && order_count == triangles_count &&
-                uint64_t(hash_count) <= uint64_t(INT32_MAX) + 1 && expected == payload_size &&
-                file.size() >= header_size && payload_size == file.size() - header_size,
+                native_surface_count <= triangles_count && uint64_t(hash_count) <= uint64_t(INT32_MAX) + 1 &&
+                expected == payload_size && file.size() >= header_size &&
+                payload_size == file.size() - header_size,
             CS2TL_CORRUPT_CACHE, "Invalid cache counts/lengths.", 24);
     require(fingerprint(std::span(file).subspan(header_size)) == checksum, CS2TL_CORRUPT_CACHE,
             "Cache payload checksum mismatch.", 56);
@@ -151,11 +155,16 @@ Scene load_cache(const std::filesystem::path &path) {
         }
         primitives.push_back(p);
     }
+    std::vector<uint32_t> native_surface_objects;
+    native_surface_objects.reserve(native_surface_count);
+    for (uint32_t i = 0; i < native_surface_count; ++i) {
+        native_surface_objects.push_back(reader.u32());
+    }
     reader.position = nodes_position;
     Scene scene;
     try {
-        scene =
-            build_scene(std::move(triangles), BuildOptions{0, leaf_size}, false, std::move(primitives), true);
+        scene = build_scene(std::move(triangles), BuildOptions{0, leaf_size}, false, std::move(primitives),
+                            true, std::move(native_surface_objects));
     } catch (const Error &e) {
         throw Error(CS2TL_CORRUPT_CACHE, e.what(), reader.position);
     }

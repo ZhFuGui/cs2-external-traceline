@@ -37,10 +37,14 @@ query_intervals_impl(const Scene &scene, const Ray &ray, QueryWorkspace &workspa
     if (candidates.empty()) {
         return result;
     }
+    bool surface_candidates = false;
     for (const auto id : candidates) {
-        require_lazy(scene.solids[id].closed, CS2TL_INCOMPLETE_GEOMETRY, [&] {
-            return "Segment overlaps the bounds of open/nonmanifold solid " + std::to_string(id);
+        const auto &solid = scene.solids[id];
+        require_lazy(solid.closed || solid.native_surface_mesh, CS2TL_INCOMPLETE_GEOMETRY, [&] {
+            return "Segment overlaps untyped open/nonmanifold solid " + std::to_string(id) +
+                   "; native mesh provenance is unavailable. Rebuild from physics text when applicable.";
         });
+        surface_candidates |= !solid.closed;
     }
     // A disconnected inner shell may represent a cavity rather than another
     // filled solid. The text format supplies no explicit CSG semantics here.
@@ -49,14 +53,37 @@ query_intervals_impl(const Scene &scene, const Ray &ray, QueryWorkspace &workspa
     // also intersect this segment. One precomputed witness exactly replaces the
     // old candidate-pair predicate; no pair list or quadratic query is needed.
     for (const auto id : candidates) {
-        require(scene.solids[id].container == CS2TL_INVALID_ID, CS2TL_INCOMPLETE_GEOMETRY,
+        require(!scene.solids[id].closed || scene.solids[id].container == CS2TL_INVALID_ID,
+                CS2TL_INCOMPLETE_GEOMETRY,
                 "Nested shells of one source object require explicit solid/cavity decomposition.");
     }
     auto hits = Curved ? trace_all_into(scene, ray, workspace, false)
                        : trace_all_triangles_into(scene, ray, workspace, false);
+    if (surface_candidates) {
+        // Native m_meshes are surface colliders, not filled bounding boxes.
+        // No surface contact means no interaction with that open component.
+        // A real contact still supplies no certified volume: never pair open
+        // faces, guess a wall thickness, or silently discard the contact.
+        const Hit *uncertain = nullptr;
+        for (const auto &hit : hits) {
+            if (!scene.solids[hit_solid_as<Curved>(scene, hit)].closed &&
+                (!uncertain || hit.distance < uncertain->distance)) {
+                uncertain = &hit;
+            }
+        }
+        require_lazy(!uncertain, CS2TL_INCOMPLETE_GEOMETRY, [&] {
+            const auto id = hit_solid_as<Curved>(scene, *uncertain);
+            return "Ray hits native surface mesh without certified thickness (solid " + std::to_string(id) +
+                   ", object " + std::to_string(scene.solids[id].object) + ", distance " +
+                   std::to_string(uncertain->distance) + ").";
+        });
+    }
     size_t cursor = 0;
     for (uint32_t id : candidates) {
         const auto &solid = scene.solids[id];
+        if (!solid.closed) {
+            continue; // Proven native surface component; actual contacts were rejected above.
+        }
         while (cursor < hits.size() && hit_solid_as<Curved>(scene, hits[cursor]) < id) {
             ++cursor;
         }

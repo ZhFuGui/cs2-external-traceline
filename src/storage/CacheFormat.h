@@ -9,6 +9,9 @@ inline constexpr uint32_t cache_version = 1;
 inline constexpr uint32_t cache_header_size = 64;
 inline constexpr uint32_t curved_cache_version = 2;
 inline constexpr uint32_t curved_cache_header_size = 72;
+// v3 keeps the v2 header size and stores a native mesh-object count in its
+// former reserved field. Sorted object ids follow the primitive records.
+inline constexpr uint32_t surface_cache_version = 3;
 void save_cache(const Scene &scene, const std::filesystem::path &path);
 Scene load_cache(const std::filesystem::path &path);
 } // namespace cs2::traceline
