@@ -13,6 +13,7 @@
 namespace tl = cs2::traceline;
 struct cs2tl_scene {
     tl::Scene data;
+    mutable tl::QueryWorkspacePool workspaces;
     explicit cs2tl_scene(tl::Scene value) : data(std::move(value)) {}
 };
 namespace {
@@ -193,8 +194,7 @@ cs2tl_status CS2TL_CALL cs2tl_is_occluded(const cs2tl_scene *scene, const cs2tl_
         const auto &data = checked(scene);
         const auto query = ray(segment);
         tl::require(out != nullptr, CS2TL_INVALID_ARGUMENT, "Occlusion output is required.");
-        tl::QueryLease lease;
-        *out = tl::is_occluded(data, query, lease.get()) ? 1u : 0u;
+        *out = tl::is_occluded(data, query, scene->workspaces) ? 1u : 0u;
     });
 }
 cs2tl_status CS2TL_CALL cs2tl_trace_closest(const cs2tl_scene *scene, const cs2tl_segment *segment,
@@ -209,8 +209,7 @@ cs2tl_status CS2TL_CALL cs2tl_trace_closest(const cs2tl_scene *scene, const cs2t
         const auto &data = checked(scene);
         const auto query = ray(segment);
         tl::require(hit && found, CS2TL_INVALID_ARGUMENT, "Hit and found outputs are required.");
-        tl::QueryLease lease;
-        if (const auto nearest = tl::trace_closest(data, query, lease.get())) {
+        if (const auto nearest = tl::trace_closest(data, query, scene->workspaces)) {
             *hit = tl::external_hit(data, query, *nearest);
             *found = 1;
         }
@@ -227,7 +226,7 @@ cs2tl_status CS2TL_CALL cs2tl_trace_all(const cs2tl_scene *scene, const cs2tl_se
         const auto query = ray(segment);
         tl::require(count && (buffer || capacity == 0), CS2TL_INVALID_ARGUMENT,
                     "Invalid result buffer/count.");
-        tl::QueryLease lease;
+        tl::QueryLease lease(scene->workspaces);
         const auto hits = tl::trace_all_into(data, query, lease.get());
         *count = static_cast<uint32_t>(hits.size());
         if (!buffer && capacity == 0) {
@@ -251,8 +250,45 @@ cs2tl_status CS2TL_CALL cs2tl_query_intervals(const cs2tl_scene *scene, const cs
         const auto query = ray(segment);
         tl::require(count && (buffer || capacity == 0), CS2TL_INVALID_ARGUMENT,
                     "Invalid interval buffer/count.");
-        tl::QueryLease lease;
+        tl::QueryLease lease(scene->workspaces);
         copy_result(tl::query_intervals_into(data, query, lease.get()), buffer, capacity, count);
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_trace_all_to(const cs2tl_scene *scene, const cs2tl_segment *segment,
+                                           cs2tl_allocate_hits_fn allocate, void *user, cs2tl_error *error) {
+    return guarded(error, [&] {
+        const auto &data = checked(scene);
+        const auto query = ray(segment);
+        tl::require(allocate != nullptr, CS2TL_INVALID_ARGUMENT, "Result allocator is required.");
+        tl::QueryLease lease(scene->workspaces);
+        const auto hits = tl::trace_all_into(data, query, lease.get());
+        auto *buffer = allocate(static_cast<uint32_t>(hits.size()), user);
+        tl::require(buffer || hits.empty(), CS2TL_OUT_OF_MEMORY, "Result allocation failed.");
+        for (size_t i = 0; i < hits.size(); ++i) {
+            buffer[i] = tl::external_hit(data, query, hits[i]);
+        }
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_query_intervals_to(const cs2tl_scene *scene, const cs2tl_segment *segment,
+                                                 cs2tl_allocate_intervals_fn allocate, void *user,
+                                                 cs2tl_error *error) {
+    return guarded(error, [&] {
+        const auto &data = checked(scene);
+        const auto query = ray(segment);
+        tl::require(allocate != nullptr, CS2TL_INVALID_ARGUMENT, "Result allocator is required.");
+        tl::QueryLease lease(scene->workspaces);
+        const auto intervals = tl::query_intervals_into(data, query, lease.get());
+        auto *buffer = allocate(static_cast<uint32_t>(intervals.size()), user);
+        tl::require(buffer || intervals.empty(), CS2TL_OUT_OF_MEMORY, "Result allocation failed.");
+        if (!intervals.empty()) {
+            std::copy(intervals.begin(), intervals.end(), buffer);
+        }
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_release_query_memory(cs2tl_scene *scene, cs2tl_error *error) {
+    return guarded(error, [&] {
+        (void)checked(scene);
+        scene->workspaces.release_memory();
     });
 }
 cs2tl_status CS2TL_CALL cs2tl_simulate_shot(const cs2tl_scene *scene, const cs2tl_shot_request *request,

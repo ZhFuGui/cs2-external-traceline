@@ -1,5 +1,6 @@
 #pragma once
 #include "api.h"
+#include <exception>
 #include <limits>
 #include <optional>
 #include <span>
@@ -31,6 +32,29 @@ inline cs2tl_segment segment(cs2tl_vec3 start, cs2tl_vec3 end, float endpoint_ep
                              float merge_epsilon = 1e-5f) {
     return {sizeof(cs2tl_segment), 0, start, end, endpoint_epsilon, merge_epsilon};
 }
+namespace detail {
+template <class T> struct result_target {
+    std::vector<T> values;
+    std::exception_ptr failure;
+    static T *CS2TL_CALL allocate(uint32_t count, void *user) noexcept {
+        auto &target = *static_cast<result_target *>(user);
+        try {
+            target.values.resize(count);
+            return target.values.data();
+        } catch (...) {
+            target.failure = std::current_exception();
+            return nullptr;
+        }
+    }
+    std::vector<T> finish(cs2tl_status status, const cs2tl_error &error) {
+        if (failure) {
+            std::rethrow_exception(failure);
+        }
+        check(status, error);
+        return std::move(values);
+    }
+};
+} // namespace detail
 class scene {
     cs2tl_scene *handle{};
     explicit scene(cs2tl_scene *value) : handle(value) {}
@@ -100,19 +124,20 @@ class scene {
     }
     std::vector<cs2tl_hit> all_hits(const cs2tl_segment &query) const {
         auto e = error_output();
-        uint32_t count{};
-        check(cs2tl_trace_all(handle, &query, nullptr, 0, &count, &e), e);
-        std::vector<cs2tl_hit> out(count);
-        check(cs2tl_trace_all(handle, &query, out.data(), count, &count, &e), e);
-        return out;
+        detail::result_target<cs2tl_hit> target;
+        const auto status = cs2tl_trace_all_to(handle, &query, target.allocate, &target, &e);
+        return target.finish(status, e);
     }
     std::vector<cs2tl_interval> intervals(const cs2tl_segment &query) const {
         auto e = error_output();
-        uint32_t count{};
-        check(cs2tl_query_intervals(handle, &query, nullptr, 0, &count, &e), e);
-        std::vector<cs2tl_interval> out(count);
-        check(cs2tl_query_intervals(handle, &query, out.data(), count, &count, &e), e);
-        return out;
+        detail::result_target<cs2tl_interval> target;
+        const auto status = cs2tl_query_intervals_to(handle, &query, target.allocate, &target, &e);
+        return target.finish(status, e);
+    }
+    // Quiesce scene queries first. Releasing scratch does not unload geometry.
+    void release_query_memory() const {
+        auto e = error_output();
+        check(cs2tl_release_query_memory(handle, &e), e);
     }
 };
 } // namespace cs2::traceline

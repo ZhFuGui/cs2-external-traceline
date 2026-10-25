@@ -8,7 +8,8 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
                                                      QueryWorkspace &workspace) {
     require((scene.flags & CS2TL_SCENE_APPROXIMATE) == 0, CS2TL_INCOMPLETE_GEOMETRY,
             "Exact thickness is unavailable for a scene containing approximated hulls.");
-    auto hits = trace_all_into(scene, ray, workspace, false);
+    auto &result = workspace.intervals;
+    result.clear();
     auto &candidates = workspace.candidates;
     candidates.clear();
     visit_index(
@@ -25,6 +26,9 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
             return true;
         });
     std::sort(candidates.begin(), candidates.end());
+    if (candidates.empty()) {
+        return result;
+    }
     for (const auto id : candidates) {
         require_lazy(scene.solids[id].closed, CS2TL_INCOMPLETE_GEOMETRY, [&] {
             return "Segment overlaps the bounds of open/nonmanifold solid " + std::to_string(id);
@@ -40,8 +44,7 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
         require(scene.solids[id].container == CS2TL_INVALID_ID, CS2TL_INCOMPLETE_GEOMETRY,
                 "Nested shells of one source object require explicit solid/cavity decomposition.");
     }
-    auto &result = workspace.intervals;
-    result.clear();
+    auto hits = trace_all_into(scene, ray, workspace, false);
     size_t cursor = 0;
     for (uint32_t id : candidates) {
         const auto &solid = scene.solids[id];

@@ -20,8 +20,9 @@ extern "C" {
  * Output handles are NULL on failure; the DLL owns and destroys their storage.
  * Scenes support concurrent reads. Never destroy a scene during a query.
  * Options may be NULL for defaults. No API retains caller-owned input pointers.
- * Queries reuse per-thread scratch (up to 4 MiB retained); reentrant calls use
- * separate scratch. Finish calling threads before unloading the DLL. */
+ * Query scratch belongs to each scene and is reused across queries. Concurrent
+ * and reentrant calls use separate workspaces. Destroying the scene releases
+ * all of them. No query history or owning thread-local scene cache is kept. */
 CS2TL_API uint32_t CS2TL_CALL cs2tl_get_abi_version(void);
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_build_cache(const char *input_path, const char *output_path,
                                                     const cs2tl_build_options *options, cs2tl_error *error);
@@ -72,6 +73,26 @@ CS2TL_API cs2tl_status CS2TL_CALL cs2tl_query_intervals(const cs2tl_scene *scene
                                                         const cs2tl_segment *segment,
                                                         cs2tl_interval *intervals, uint32_t capacity,
                                                         uint32_t *out_count, cs2tl_error *error);
+
+/* Single-computation allocation. The allocator is called exactly once after a
+ * successful complete query, including zero results. It must not throw and must
+ * return storage for count elements, or NULL on allocation failure. NULL is valid
+ * for zero results. Caller owns the storage; no input/output pointers are kept.
+ * Reentrant queries are allowed. Never destroy/reset this scene in the callback.
+ * Geometry errors do not call the allocator. */
+typedef cs2tl_hit *(CS2TL_CALL *cs2tl_allocate_hits_fn)(uint32_t count, void *user);
+typedef cs2tl_interval *(CS2TL_CALL *cs2tl_allocate_intervals_fn)(uint32_t count, void *user);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_trace_all_to(const cs2tl_scene *scene, const cs2tl_segment *segment,
+                                                     cs2tl_allocate_hits_fn allocate, void *user,
+                                                     cs2tl_error *error);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_query_intervals_to(const cs2tl_scene *scene,
+                                                           const cs2tl_segment *segment,
+                                                           cs2tl_allocate_intervals_fn allocate, void *user,
+                                                           cs2tl_error *error);
+
+/* Optional release after a large batch. Finish ALL scene queries first, as for
+ * destroy_scene. Geometry remains loaded and subsequent queries remain valid. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_release_query_memory(cs2tl_scene *scene, cs2tl_error *error);
 
 /* Reserved: validates the ABI and returns NOT_IMPLEMENTED, result outcome stays
  * NOT_COMPUTED. remaining_damage/target_damage are NaN, never a damage estimate. */
