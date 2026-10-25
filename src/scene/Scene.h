@@ -28,6 +28,13 @@ struct Solid {
     uint32_t group{CS2TL_INVALID_ID};
     uint32_t container{CS2TL_INVALID_ID};
     uint32_t point_root{CS2TL_INVALID_ID};
+    double diagonal{};
+};
+// Query-only data is prepared after quantization and winding repair. Keeping it
+// separate avoids fetching topology/source vertices for each intersection.
+struct TriangleQuery {
+    Vec3 a, edge1, edge2;
+    double tolerance{};
 };
 struct BvhNode {
     Aabb bounds;
@@ -63,6 +70,8 @@ struct Scene {
     std::vector<uint32_t> object_order;
     std::vector<IndexNode> point_nodes;
     std::vector<uint32_t> point_order;
+    std::vector<TriangleQuery> query_triangles;
+    std::vector<Vec3> triangle_normals;
 };
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true);
 } // namespace cs2::traceline

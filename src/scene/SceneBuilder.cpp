@@ -197,6 +197,7 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
             }
         }
         for (auto &solid : scene.solids) {
+            solid.diagonal = (solid.bounds.hi - solid.bounds.lo).length();
             if (solid.closed) {
                 const auto reference = tris[solid.triangles.front()].a;
                 double volume = 0;
@@ -216,6 +217,14 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
                 scene.flags |= CS2TL_SCENE_HAS_OPEN_GEOMETRY;
             }
         }
+    }
+    scene.query_triangles.reserve(count);
+    scene.triangle_normals.reserve(count);
+    for (const auto &tri : tris) {
+        const auto e1 = tri.b - tri.a, e2 = tri.c - tri.a;
+        scene.query_triangles.push_back(
+            {tri.a, e1, e2, 32 * std::numeric_limits<double>::epsilon() * e1.length() * e2.length()});
+        scene.triangle_normals.push_back(tri.normal());
     }
     if (build_acceleration) {
         build_bvh(scene);

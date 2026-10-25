@@ -5,6 +5,17 @@
 #include <limits>
 
 namespace cs2::traceline {
+namespace {
+const auto containment_directions = [] {
+    std::array directions{Vec3{1, 0.3713906763541037, 0.6947465906068658},
+                          Vec3{0.238617320472852, 1, 0.5176380902050415},
+                          Vec3{0.6180339887498949, 0.4142135623730951, 1}};
+    for (auto &direction : directions) {
+        direction = direction / direction.length();
+    }
+    return directions;
+}();
+} // namespace
 Ray make_ray(const cs2tl_segment &segment) {
     require(segment.flags == 0, CS2TL_INVALID_ARGUMENT, "Unknown segment flags.");
     Vec3 a(segment.start), b(segment.end);
@@ -29,10 +40,15 @@ bool intersects_triangle(const Triangle &tri, const Ray &ray, double &distance, 
     // Double intermediates avoid the old absolute determinant threshold, whose
     // result depended on triangle size. Boundary duplicates are handled later.
     const Vec3 e1 = tri.b - tri.a, e2 = tri.c - tri.a;
+    const double tolerance = 32 * std::numeric_limits<double>::epsilon() * e1.length() * e2.length();
+    return intersects_triangle(TriangleQuery{tri.a, e1, e2, tolerance}, ray, distance, barycentric_margin);
+}
+bool intersects_triangle(const TriangleQuery &tri, const Ray &ray, double &distance,
+                         double *barycentric_margin) {
+    const auto &e1 = tri.edge1, &e2 = tri.edge2;
     const Vec3 p = ray.direction.cross(e2);
     const double det = e1.dot(p);
-    const double tolerance = 32 * std::numeric_limits<double>::epsilon() * e1.length() * e2.length();
-    if (std::abs(det) <= tolerance) {
+    if (std::abs(det) <= tri.tolerance) {
         return false;
     }
     const double inverse = 1 / det;
@@ -76,17 +92,12 @@ bool contains(const Scene &scene, const Solid &solid, Vec3 point) {
     if (!solid.closed || !solid.bounds.contains(point)) {
         return false;
     }
-    const double scale = std::max({(solid.bounds.hi - solid.bounds.lo).length(), std::abs(point.x),
-                                   std::abs(point.y), std::abs(point.z)});
+    const double scale = std::max({solid.diagonal, std::abs(point.x), std::abs(point.y), std::abs(point.z)});
     const double boundary_epsilon = 64 * std::numeric_limits<double>::epsilon() * scale;
     {
-        const double distance_limit = 2 * (solid.bounds.hi - solid.bounds.lo).length();
-        const std::array directions{Vec3{1, 0.3713906763541037, 0.6947465906068658},
-                                    Vec3{0.238617320472852, 1, 0.5176380902050415},
-                                    Vec3{0.6180339887498949, 0.4142135623730951, 1}};
+        const double distance_limit = 2 * solid.diagonal;
         int previous_winding = -1;
-        for (auto direction : directions) {
-            direction = direction / direction.length();
+        for (const auto direction : containment_directions) {
             const Ray test{point, direction, distance_limit, 0, distance_limit, 0};
             double high = distance_limit;
             int winding = 0;
@@ -99,9 +110,9 @@ bool contains(const Scene &scene, const Solid &solid, Vec3 point) {
                     return false;
                 }
                 double distance{}, margin{};
-                if (intersects_triangle(tri, test, distance, &margin) && distance > boundary_epsilon &&
-                    distance < distance_limit) {
-                    const double facing = tri.normal().dot(direction);
+                if (intersects_triangle(scene.query_triangles[index], test, distance, &margin) &&
+                    distance > boundary_epsilon && distance < distance_limit) {
+                    const double facing = scene.triangle_normals[index].dot(direction);
                     if (margin <= 1e-10 || std::abs(facing) <= 1e-12) {
                         ambiguous = true;
                         return false;
