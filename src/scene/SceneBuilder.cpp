@@ -66,7 +66,7 @@ uint32_t bits(double value) {
 }
 } // namespace
 
-Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool build_acceleration) {
+Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool build_acceleration, bool preserve_orientation) {
     require(triangles.size() <= max_triangles, CS2TL_INVALID_GEOMETRY, "Triangle limit exceeded.");
     require(options.leaf_size >= 1 && options.leaf_size <= 64, CS2TL_INVALID_ARGUMENT,
             "BVH leaf size must be in 1..64.");
@@ -192,7 +192,7 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
             }
         }
         for (uint32_t i = 0; i < count; ++i) {
-            if (flips[i] == 1) {
+            if (!preserve_orientation && flips[i] == 1) {
                 std::swap(tris[i].b, tris[i].c);
             }
         }
@@ -208,6 +208,8 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
                 if (volume == 0 || !std::isfinite(volume)) {
                     solid.closed = false;
                 } else if (volume < 0) {
+                    require(!preserve_orientation, CS2TL_CORRUPT_CACHE,
+                            "Cached closed solid has inward winding.");
                     for (auto index : solid.triangles) {
                         std::swap(tris[index].b, tris[index].c);
                     }

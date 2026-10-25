@@ -73,5 +73,5 @@ struct Scene {
     std::vector<TriangleQuery> query_triangles;
     std::vector<Vec3> triangle_normals;
 };
-Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true);
+Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true, bool preserve_orientation = false);
 } // namespace cs2::traceline

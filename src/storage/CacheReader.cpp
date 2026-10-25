@@ -121,7 +121,7 @@ Scene load_cache(const std::filesystem::path &path) {
     }
     Scene scene;
     try {
-        scene = build_scene(std::move(triangles), BuildOptions{0, leaf_size}, false);
+        scene = build_scene(std::move(triangles), BuildOptions{0, leaf_size}, false, true);
     } catch (const Error &e) {
         throw Error(CS2TL_CORRUPT_CACHE, e.what(), reader.position);
     }
