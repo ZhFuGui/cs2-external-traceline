@@ -64,6 +64,12 @@
     <ClCompile Include="src\storage\CacheWriter.cpp">
       <Filter>src\storage</Filter>
     </ClCompile>
+    <ClCompile Include="src\profiles\BallisticsProfiles.cpp">
+      <Filter>src\profiles</Filter>
+    </ClCompile>
+    <ClCompile Include="src\storage\ProfileReader.cpp">
+      <Filter>src\storage</Filter>
+    </ClCompile>
     <ClCompile Include="src\ballistics\ShotSimulator.cpp">
       <Filter>src\ballistics</Filter>
     </ClCompile>
@@ -116,6 +122,9 @@
     </ClInclude>
     <ClInclude Include="src\ballistics\ShotSimulator.h">
       <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\profiles\BallisticsProfiles.h">
+      <Filter>src\profiles</Filter>
     </ClInclude>
     <ClInclude Include="src\profiles\Ruleset.h">
       <Filter>src\profiles</Filter>

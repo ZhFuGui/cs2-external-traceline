@@ -111,11 +111,64 @@ CS2TL_API cs2tl_status CS2TL_CALL cs2tl_query_intervals_to(const cs2tl_scene *sc
  * destroy_scene. Geometry remains loaded and subsequent queries remain valid. */
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_release_query_memory(cs2tl_scene *scene, cs2tl_error *error);
 
-/* Reserved: validates the ABI and returns NOT_IMPLEMENTED, result outcome stays
- * NOT_COMPUTED. remaining_damage/target_damage are NaN, never a damage estimate. */
+/* Explicit-profile compatibility entry point for one bullet. ruleset_version=0
+ * selects STATIC_V1. surface flags encode game_material in bits 0..15 and
+ * NATIVE_FLAG13 in bit 16. target must be NULL: player health damage is not
+ * evaluated; target_damage remains NaN. Prefer a bound ballistics context for
+ * repeated queries. With a valid, correctly sized result, errors leave damage
+ * NaN, never a successful zero. */
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_simulate_shot(const cs2tl_scene *scene,
                                                       const cs2tl_shot_request *request,
                                                       cs2tl_shot_result *result, cs2tl_error *error);
+
+/* Explicit, immutable external parameter package; no directory discovery.
+ * Profiles are loaded/validated once. Game-build differences produce warnings
+ * and prediction flags. Binary/profile format errors remain errors. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_load_profiles(const char *path, cs2tl_profiles **out,
+                                                      cs2tl_error *error);
+CS2TL_API void CS2TL_CALL cs2tl_destroy_profiles(cs2tl_profiles *profiles);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_profiles_info(const cs2tl_profiles *profiles,
+                                                          cs2tl_profiles_info *out, cs2tl_error *error);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_weapon_profile(const cs2tl_profiles *profiles, uint32_t weapon_id,
+                                                           uint32_t fire_mode, cs2tl_weapon_profile *out,
+                                                           cs2tl_error *error);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_weapon_profile_at(const cs2tl_profiles *profiles, uint32_t index,
+                                                              cs2tl_weapon_profile *out, cs2tl_error *error);
+/* Both name functions report bytes INCLUDING the UTF-8 NUL terminator. A
+ * NULL buffer with capacity=0 queries the size; a short buffer is not written.
+ * Names refer to the primary firing-mode record of the supplied weapon ID. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_weapon_name(const cs2tl_profiles *profiles, uint32_t weapon_id,
+                                                        char *buffer, uint32_t capacity,
+                                                        uint32_t *required_bytes, cs2tl_error *error);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_weapon_ammo_name(const cs2tl_profiles *profiles,
+                                                             uint32_t weapon_id, char *buffer,
+                                                             uint32_t capacity, uint32_t *required_bytes,
+                                                             cs2tl_error *error);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_material_profile(const cs2tl_profiles *profiles,
+                                                             uint32_t surface_hash,
+                                                             cs2tl_material_profile *out, cs2tl_error *error);
+/* Resolves material indices once. The context retains scene and profile data,
+ * so their public handles may be destroyed after binding. Finish all context
+ * queries before destroying it. No per-query I/O or result history is kept. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_create_ballistics(const cs2tl_scene *scene,
+                                                          const cs2tl_profiles *profiles,
+                                                          cs2tl_ballistics **out, cs2tl_error *error);
+CS2TL_API void CS2TL_CALL cs2tl_destroy_ballistics(cs2tl_ballistics *context);
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_ballistics_info(const cs2tl_ballistics *context,
+                                                            cs2tl_ballistics_info *out, cs2tl_error *error);
+/* Quiesce all queries on the retained scene before releasing reusable scratch. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_release_ballistics_memory(cs2tl_ballistics *context,
+                                                                  cs2tl_error *error);
+/* One supplied A-to-B ray, per bullet/pellet, with no player damage or spread.
+ * Reads only immutable inputs and the scene's reusable query workspace. Open,
+ * ambiguous or partially traversed solids and missing required materials return
+ * an error with NOT_COMPUTED/NaN when out is valid and correctly sized.
+ * Observe prediction flags for validation scope.
+ * Engine stopping rules (including four penetrations) are game behavior, not
+ * resource/import limits. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(
+    const cs2tl_ballistics *context, const cs2tl_remaining_damage_request *request,
+    cs2tl_shot_prediction *out, cs2tl_error *error);
 
 #ifdef __cplusplus
 }

@@ -5,6 +5,7 @@
 /* Preferred collision scene cache suffix. Loading validates the file contents,
  * so existing caches remain readable regardless of their filename extension. */
 #define CS2TL_SCENE_CACHE_EXTENSION ".cs2tl"
+#define CS2TL_PROFILES_EXTENSION ".cs2tlp"
 #define CS2TL_INVALID_ID UINT32_MAX
 #define CS2TL_UNKNOWN_SURFACE (-1)
 
@@ -21,7 +22,9 @@ enum {
     CS2TL_OUT_OF_MEMORY = 8,
     CS2TL_NOT_IMPLEMENTED = 9,
     CS2TL_INTERNAL_ERROR = 10,
-    CS2TL_INCOMPLETE_GEOMETRY = 11
+    CS2TL_INCOMPLETE_GEOMETRY = 11,
+    CS2TL_DATA_NOT_FOUND = 12,
+    CS2TL_CORRUPT_PROFILES = 13
 };
 
 typedef struct cs2tl_scene cs2tl_scene;
@@ -105,7 +108,9 @@ typedef struct cs2tl_interval {
     uint32_t object_id, solid_id;
 } cs2tl_interval;
 
-/* Ballistics ABI reservation. No damage formula is implemented in ABI v1. */
+/* One bullet/pellet. weapon_id is the game item definition index (7 = AK-47).
+ * ammo_id is the case-insensitive CUtlStringToken of the resource ammo name,
+ * not the ordinal of an in-process engine enum. */
 typedef struct cs2tl_weapon_profile {
     uint32_t struct_size;
     uint32_t weapon_id;
@@ -159,3 +164,53 @@ typedef struct cs2tl_shot_result {
     uint32_t ruleset_version;
     uint32_t reserved;
 } cs2tl_shot_result;
+
+typedef struct cs2tl_profiles cs2tl_profiles;
+typedef struct cs2tl_ballistics cs2tl_ballistics;
+enum { CS2TL_RULESET_CS2_STATIC_V1 = 1u };
+enum { CS2TL_FIRE_PRIMARY = 0u, CS2TL_FIRE_ALTERNATE = 1u };
+enum { CS2TL_PROFILES_NOT_LIVE_VALIDATED = 1u, CS2TL_PROFILES_BUILD_MISMATCH = 2u };
+typedef struct cs2tl_profiles_info {
+    uint32_t struct_size, format_version, client_version, ruleset_version;
+    uint64_t steam_build_id, source_fingerprint;
+    uint32_t weapon_profile_count, surface_count, flags, reserved;
+} cs2tl_profiles_info;
+/* Flags describe engine interaction metadata supplied by the caller. */
+enum { CS2TL_MATERIAL_NATIVE_FLAG13 = 1u };
+typedef struct cs2tl_material_profile {
+    uint32_t struct_size, surface_hash, game_material, flags;
+    float penetration_distance_modifier, penetration_damage_modifier;
+    uint32_t data_version, reserved;
+} cs2tl_material_profile;
+typedef struct cs2tl_ballistics_info {
+    uint32_t struct_size, flags, scene_surface_count, resolved_surface_count;
+    uint32_t unknown_surface_count, reserved;
+    uint64_t scene_fingerprint;
+} cs2tl_ballistics_info;
+typedef struct cs2tl_remaining_damage_request {
+    uint32_t struct_size, weapon_id, fire_mode, reserved;
+    cs2tl_segment segment;
+} cs2tl_remaining_damage_request;
+enum {
+    CS2TL_STOP_NONE = 0u,
+    CS2TL_STOP_RANGE = 1u,
+    CS2TL_STOP_PENETRATION_POWER = 2u,
+    CS2TL_STOP_MATERIAL = 3u,
+    CS2TL_STOP_DAMAGE = 4u,
+    CS2TL_STOP_PENETRATION_COUNT = 5u,
+    CS2TL_STOP_PENETRATION_DISTANCE = 6u
+};
+enum {
+    CS2TL_PREDICTION_STATIC_SCENE = 1u,
+    CS2TL_PREDICTION_BINARY_RULES_AUDITED = 2u,
+    CS2TL_PREDICTION_NOT_LIVE_VALIDATED = 4u,
+    CS2TL_PREDICTION_BUILD_MISMATCH = 8u,
+    /* Scene v1/v2 do not preserve native per-hit interaction bit 13. Its
+     * special override is unavailable under the default intact-static policy. */
+    CS2TL_PREDICTION_INTERACTION_FLAGS_UNAVAILABLE = 16u
+};
+typedef struct cs2tl_shot_prediction {
+    uint32_t struct_size, outcome;
+    float remaining_damage;
+    uint32_t penetration_count, stop_reason, ruleset_version, flags, reserved;
+} cs2tl_shot_prediction;

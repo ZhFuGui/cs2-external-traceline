@@ -2,10 +2,13 @@
 #include "ballistics/ShotSimulator.h"
 #include "diagnostics/Error.h"
 #include "import/PhysicsTextReader.h"
+#include "profiles/BallisticsProfiles.h"
+#include "profiles/Ruleset.h"
 #include "storage/CacheFormat.h"
 #include "storage/FileIO.h"
 #include "trace/TraceQuery.h"
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -14,7 +17,18 @@ namespace tl = cs2::traceline;
 struct cs2tl_scene {
     tl::Scene data;
     mutable tl::QueryWorkspacePool workspaces;
+    mutable std::atomic<uint64_t> references{1};
     explicit cs2tl_scene(tl::Scene value) : data(std::move(value)) {}
+};
+struct cs2tl_profiles {
+    std::shared_ptr<const tl::BallisticsProfiles> data;
+};
+struct cs2tl_ballistics {
+    const cs2tl_scene *scene{};
+    std::shared_ptr<const tl::BallisticsProfiles> profiles;
+    std::vector<tl::ResolvedMaterial> materials;
+    cs2tl_ballistics_info info{};
+    ~cs2tl_ballistics() { cs2tl_destroy_scene(const_cast<cs2tl_scene *>(scene)); }
 };
 namespace {
 void write_error(cs2tl_error *error, cs2tl_status code, const char *message,
@@ -216,7 +230,9 @@ cs2tl_status CS2TL_CALL cs2tl_save_scene(const cs2tl_scene *scene, const char *o
     return guarded(error, [&] { tl::save_cache(checked(scene), tl::utf8_path(path(output))); });
 }
 void CS2TL_CALL cs2tl_destroy_scene(cs2tl_scene *scene) {
-    delete scene;
+    if (scene && scene->references.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        delete scene;
+    }
 }
 cs2tl_status CS2TL_CALL cs2tl_get_scene_info(const cs2tl_scene *scene, cs2tl_scene_info *info,
                                              cs2tl_error *error) {
@@ -366,10 +382,184 @@ cs2tl_status CS2TL_CALL cs2tl_release_query_memory(cs2tl_scene *scene, cs2tl_err
 }
 cs2tl_status CS2TL_CALL cs2tl_simulate_shot(const cs2tl_scene *scene, const cs2tl_shot_request *request,
                                             cs2tl_shot_result *result, cs2tl_error *error) {
+    if (result && result->struct_size >= sizeof(*result)) {
+        tl::reset_shot_result(*result);
+    }
     return guarded(error, [&] {
         const auto &data = checked(scene);
         sized(request);
         sized(result);
-        tl::simulate_shot(data, *request, *result);
+        tl::QueryLease lease(scene->workspaces);
+        tl::simulate_shot(data, *request, *result, lease.get());
+    });
+}
+namespace {
+const tl::BallisticsProfiles &checked_profiles(const cs2tl_profiles *profiles) {
+    tl::require(profiles != nullptr, CS2TL_INVALID_ARGUMENT, "Profile handle is required.");
+    return *profiles->data;
+}
+const cs2tl_ballistics &checked_ballistics(const cs2tl_ballistics *context) {
+    tl::require(context != nullptr, CS2TL_INVALID_ARGUMENT, "Ballistics context is required.");
+    return *context;
+}
+} // namespace
+cs2tl_status CS2TL_CALL cs2tl_load_profiles(const char *input, cs2tl_profiles **out, cs2tl_error *error) {
+    if (out) {
+        *out = nullptr;
+    }
+    return guarded(error, [&] {
+        tl::require(out != nullptr, CS2TL_INVALID_ARGUMENT, "Output profile pointer is required.");
+        auto profiles = std::make_unique<cs2tl_profiles>();
+        profiles->data =
+            std::make_shared<const tl::BallisticsProfiles>(tl::load_profiles(tl::utf8_path(path(input))));
+        *out = profiles.release();
+    });
+}
+void CS2TL_CALL cs2tl_destroy_profiles(cs2tl_profiles *profiles) {
+    delete profiles;
+}
+cs2tl_status CS2TL_CALL cs2tl_get_profiles_info(const cs2tl_profiles *profiles, cs2tl_profiles_info *out,
+                                                cs2tl_error *error) {
+    return guarded(error, [&] {
+        sized(out);
+        *out = checked_profiles(profiles).info;
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_get_weapon_profile(const cs2tl_profiles *profiles, uint32_t weapon,
+                                                 uint32_t mode, cs2tl_weapon_profile *out,
+                                                 cs2tl_error *error) {
+    return guarded(error, [&] {
+        sized(out);
+        *out = checked_profiles(profiles).weapon(weapon, mode).profile;
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_get_weapon_profile_at(const cs2tl_profiles *profiles, uint32_t index,
+                                                    cs2tl_weapon_profile *out, cs2tl_error *error) {
+    return guarded(error, [&] {
+        sized(out);
+        const auto &data = checked_profiles(profiles);
+        tl::require(index < data.weapons.size(), CS2TL_DATA_NOT_FOUND,
+                    "Weapon profile index is out of range.");
+        *out = data.weapons[index].profile;
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_get_weapon_name(const cs2tl_profiles *profiles, uint32_t id, char *buffer,
+                                              uint32_t capacity, uint32_t *required, cs2tl_error *error) {
+    return guarded(error, [&] {
+        tl::require(required && (buffer || capacity == 0), CS2TL_INVALID_ARGUMENT,
+                    "Invalid name output buffer.");
+        const auto &name = checked_profiles(profiles).weapon(id, 0).name;
+        tl::require(name.size() < UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+                    "Name length exceeds uint32 representation.");
+        *required = static_cast<uint32_t>(name.size() + 1);
+        if (!buffer && capacity == 0) {
+            return;
+        }
+        tl::require(capacity >= *required, CS2TL_BUFFER_TOO_SMALL, "Weapon name buffer is too small.");
+        std::memcpy(buffer, name.c_str(), *required);
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_get_material_profile(const cs2tl_profiles *profiles, uint32_t hash,
+                                                   cs2tl_material_profile *out, cs2tl_error *error) {
+    return guarded(error, [&] {
+        sized(out);
+        *out = checked_profiles(profiles).material(hash).profile;
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_get_weapon_ammo_name(const cs2tl_profiles *profiles, uint32_t id, char *buffer,
+                                                   uint32_t capacity, uint32_t *required,
+                                                   cs2tl_error *error) {
+    return guarded(error, [&] {
+        tl::require(required && (buffer || capacity == 0), CS2TL_INVALID_ARGUMENT,
+                    "Invalid ammo name output buffer.");
+        const auto &name = checked_profiles(profiles).weapon(id, 0).ammo_name;
+        tl::require(name.size() < UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+                    "Name length exceeds uint32 representation.");
+        *required = static_cast<uint32_t>(name.size() + 1);
+        if (!buffer && capacity == 0) {
+            return;
+        }
+        tl::require(capacity >= *required, CS2TL_BUFFER_TOO_SMALL, "Ammo name buffer is too small.");
+        std::memcpy(buffer, name.c_str(), *required);
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_create_ballistics(const cs2tl_scene *scene, const cs2tl_profiles *profiles,
+                                                cs2tl_ballistics **out, cs2tl_error *error) {
+    if (out) {
+        *out = nullptr;
+    }
+    return guarded(error, [&] {
+        tl::require(out != nullptr, CS2TL_INVALID_ARGUMENT, "Output context pointer is required.");
+        const auto &geometry = checked(scene);
+        const auto &data = checked_profiles(profiles);
+        auto context = std::make_unique<cs2tl_ballistics>();
+        // Retain only at bind/destroy. Ordinary ray APIs keep their original
+        // direct geometry access and perform no reference-count operations.
+        scene->references.fetch_add(1, std::memory_order_relaxed);
+        context->scene = scene;
+        context->profiles = profiles->data;
+        auto &info = context->info;
+        info.struct_size = sizeof(info);
+        info.scene_fingerprint = geometry.fingerprint;
+        info.scene_surface_count = static_cast<uint32_t>(geometry.surface_hashes.size());
+        info.flags = CS2TL_PREDICTION_STATIC_SCENE | CS2TL_PREDICTION_NOT_LIVE_VALIDATED |
+                     CS2TL_PREDICTION_INTERACTION_FLAGS_UNAVAILABLE;
+        if (data.info.steam_build_id == tl::audited_steam_build &&
+            (data.info.flags & CS2TL_PROFILES_BUILD_MISMATCH) == 0) {
+            info.flags |= CS2TL_PREDICTION_BINARY_RULES_AUDITED;
+        } else {
+            info.flags |= CS2TL_PREDICTION_BUILD_MISMATCH;
+        }
+        context->materials.resize(geometry.surface_hashes.size());
+        for (size_t i = 0; i < geometry.surface_hashes.size(); ++i) {
+            const auto it = data.material_indices.find(geometry.surface_hashes[i]);
+            if (it == data.material_indices.end()) {
+                ++info.unknown_surface_count;
+                continue;
+            }
+            const auto &m = data.materials[it->second].profile;
+            context->materials[i] = {m.penetration_distance_modifier, m.penetration_damage_modifier,
+                                     m.game_material, m.flags, true};
+            ++info.resolved_surface_count;
+        }
+        if (info.unknown_surface_count) {
+            tl::warn("Some scene surface hashes have no ballistic material; affected queries return "
+                     "DATA_NOT_FOUND.");
+        }
+        *out = context.release();
+    });
+}
+void CS2TL_CALL cs2tl_destroy_ballistics(cs2tl_ballistics *context) {
+    delete context;
+}
+cs2tl_status CS2TL_CALL cs2tl_release_ballistics_memory(cs2tl_ballistics *context, cs2tl_error *error) {
+    return guarded(error, [&] { checked_ballistics(context).scene->workspaces.release_memory(); });
+}
+cs2tl_status CS2TL_CALL cs2tl_get_ballistics_info(const cs2tl_ballistics *context, cs2tl_ballistics_info *out,
+                                                  cs2tl_error *error) {
+    return guarded(error, [&] {
+        sized(out);
+        *out = checked_ballistics(context).info;
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(const cs2tl_ballistics *context,
+                                                         const cs2tl_remaining_damage_request *request,
+                                                         cs2tl_shot_prediction *out, cs2tl_error *error) {
+    if (out && out->struct_size >= sizeof(*out)) {
+        tl::reset_prediction(*out);
+    }
+    return guarded(error, [&] {
+        sized(request);
+        sized(out);
+        const auto &data = checked_ballistics(context);
+        tl::require(request->reserved == 0, CS2TL_INVALID_ARGUMENT, "Unknown shot request flags.");
+        tl::require(data.profiles->info.ruleset_version == CS2TL_RULESET_CS2_STATIC_V1, CS2TL_NOT_IMPLEMENTED,
+                    "Profile package requests an unsupported damage ruleset.");
+        const auto &weapon = data.profiles->weapon(request->weapon_id, request->fire_mode).profile;
+        const auto query = ray(&request->segment);
+        tl::QueryLease lease(data.scene->workspaces);
+        tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}}, lease.get(),
+                                      *out);
+        out->flags = data.info.flags;
     });
 }

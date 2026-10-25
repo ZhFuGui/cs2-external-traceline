@@ -152,4 +152,121 @@ class scene {
         check(cs2tl_release_query_memory(handle, &e), e);
     }
 };
+class profiles {
+    cs2tl_profiles *handle{};
+    explicit profiles(cs2tl_profiles *value) : handle(value) {}
+
+  public:
+    profiles() = default;
+    ~profiles() { cs2tl_destroy_profiles(handle); }
+    profiles(const profiles &) = delete;
+    profiles &operator=(const profiles &) = delete;
+    profiles(profiles &&other) noexcept : handle(std::exchange(other.handle, nullptr)) {}
+    profiles &operator=(profiles &&other) noexcept {
+        if (this != &other) {
+            cs2tl_destroy_profiles(handle);
+            handle = std::exchange(other.handle, nullptr);
+        }
+        return *this;
+    }
+    cs2tl_profiles *native_handle() const noexcept { return handle; }
+    static profiles load(std::string_view path) {
+        auto error = error_output();
+        cs2tl_profiles *out{};
+        check(cs2tl_load_profiles(std::string(path).c_str(), &out, &error), error);
+        return profiles(out);
+    }
+    cs2tl_profiles_info info() const {
+        auto error = error_output();
+        cs2tl_profiles_info out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_get_profiles_info(handle, &out, &error), error);
+        return out;
+    }
+    cs2tl_weapon_profile weapon(uint32_t id, uint32_t mode = 0) const {
+        auto error = error_output();
+        cs2tl_weapon_profile out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_get_weapon_profile(handle, id, mode, &out, &error), error);
+        return out;
+    }
+    cs2tl_weapon_profile weapon_at(uint32_t index) const {
+        auto error = error_output();
+        cs2tl_weapon_profile out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_get_weapon_profile_at(handle, index, &out, &error), error);
+        return out;
+    }
+    std::string weapon_name(uint32_t id) const {
+        auto error = error_output();
+        uint32_t bytes{};
+        check(cs2tl_get_weapon_name(handle, id, nullptr, 0, &bytes, &error), error);
+        std::string out(bytes, '\0');
+        check(cs2tl_get_weapon_name(handle, id, out.data(), bytes, &bytes, &error), error);
+        out.pop_back();
+        return out;
+    }
+    cs2tl_material_profile material(uint32_t hash) const {
+        auto error = error_output();
+        cs2tl_material_profile out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_get_material_profile(handle, hash, &out, &error), error);
+        return out;
+    }
+    std::string ammo_name(uint32_t id) const {
+        auto error = error_output();
+        uint32_t bytes{};
+        check(cs2tl_get_weapon_ammo_name(handle, id, nullptr, 0, &bytes, &error), error);
+        std::string out(bytes, '\0');
+        check(cs2tl_get_weapon_ammo_name(handle, id, out.data(), bytes, &bytes, &error), error);
+        out.pop_back();
+        return out;
+    }
+};
+class ballistics_context {
+    cs2tl_ballistics *handle{};
+    explicit ballistics_context(cs2tl_ballistics *value) : handle(value) {}
+
+  public:
+    ballistics_context() = default;
+    ~ballistics_context() { cs2tl_destroy_ballistics(handle); }
+    ballistics_context(const ballistics_context &) = delete;
+    ballistics_context &operator=(const ballistics_context &) = delete;
+    ballistics_context(ballistics_context &&other) noexcept : handle(std::exchange(other.handle, nullptr)) {}
+    ballistics_context &operator=(ballistics_context &&other) noexcept {
+        if (this != &other) {
+            cs2tl_destroy_ballistics(handle);
+            handle = std::exchange(other.handle, nullptr);
+        }
+        return *this;
+    }
+    static ballistics_context bind(const scene &geometry, const profiles &parameters) {
+        auto error = error_output();
+        cs2tl_ballistics *out{};
+        check(cs2tl_create_ballistics(geometry.native_handle(), parameters.native_handle(), &out, &error),
+              error);
+        return ballistics_context(out);
+    }
+    cs2tl_ballistics *native_handle() const noexcept { return handle; }
+    cs2tl_ballistics_info info() const {
+        auto error = error_output();
+        cs2tl_ballistics_info out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_get_ballistics_info(handle, &out, &error), error);
+        return out;
+    }
+    void release_query_memory() const {
+        auto error = error_output();
+        check(cs2tl_release_ballistics_memory(handle, &error), error);
+    }
+    cs2tl_shot_prediction remaining_damage(uint32_t weapon_id, const cs2tl_segment &query,
+                                           uint32_t fire_mode = 0) const {
+        auto error = error_output();
+        const cs2tl_remaining_damage_request request{sizeof(request), weapon_id, fire_mode, 0, query};
+        cs2tl_shot_prediction out{};
+        out.struct_size = sizeof(out);
+        check(cs2tl_calculate_remaining_damage(handle, &request, &out, &error), error);
+        return out;
+    }
+};
 } // namespace cs2::traceline
