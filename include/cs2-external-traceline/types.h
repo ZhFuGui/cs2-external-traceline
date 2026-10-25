@@ -2,6 +2,9 @@
 #include <stdint.h>
 
 #define CS2TL_ABI_VERSION 1u
+/* Preferred collision scene cache suffix. Loading validates the file contents,
+ * so existing caches remain readable regardless of their filename extension. */
+#define CS2TL_SCENE_CACHE_EXTENSION ".cs2tl"
 #define CS2TL_INVALID_ID UINT32_MAX
 #define CS2TL_UNKNOWN_SURFACE (-1)
 

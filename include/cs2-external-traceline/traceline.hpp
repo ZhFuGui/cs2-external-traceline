@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace cs2::traceline {
+inline constexpr std::string_view scene_cache_extension{CS2TL_SCENE_CACHE_EXTENSION};
 class library_error final : public std::runtime_error {
   public:
     cs2tl_status status;

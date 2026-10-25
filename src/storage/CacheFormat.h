@@ -3,6 +3,8 @@
 #include <filesystem>
 
 namespace cs2::traceline {
+// Collision scene container versions are independent of the preferred .cs2tl
+// suffix and the current AABB BVH implementation. Keep existing headers valid.
 inline constexpr uint32_t cache_version = 1;
 inline constexpr uint32_t cache_header_size = 64;
 inline constexpr uint32_t curved_cache_version = 2;

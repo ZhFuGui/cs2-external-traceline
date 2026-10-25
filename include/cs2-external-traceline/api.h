@@ -22,7 +22,11 @@ extern "C" {
  * Options may be NULL for defaults. No API retains caller-owned input pointers.
  * Query scratch belongs to each scene and is reused across queries. Concurrent
  * and reentrant calls use separate workspaces. Destroying the scene releases
- * all of them. No query history or owning thread-local scene cache is kept. */
+ * all of them. No query history or owning thread-local scene cache is kept.
+ * Cache paths are explicit. Use CS2TL_SCENE_CACHE_EXTENSION for new collision
+ * scene caches (geometry, surface identifiers and acceleration data). Loading
+ * checks the container header/payload, not the extension; earlier .bvh caches
+ * with a supported CS2TLBVH header remain compatible. */
 CS2TL_API uint32_t CS2TL_CALL cs2tl_get_abi_version(void);
 /* Per calling thread. NULL restores debugger output. The message is borrowed
  * for the callback duration; no warning history is retained by the DLL. */
