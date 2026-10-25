@@ -43,6 +43,7 @@
     <ClCompile Include="src\scene\SceneBuilder.cpp" />
     <ClCompile Include="src\bvh\BvhBuilder.cpp" />
     <ClCompile Include="src\bvh\BvhTraversal.cpp" />
+    <ClCompile Include="src\bvh\QueryIndices.cpp" />
     <ClCompile Include="src\trace\TraceQuery.cpp" />
     <ClCompile Include="src\trace\TraversalIntervals.cpp" />
     <ClCompile Include="src\import\PhysicsTextReader.cpp" />

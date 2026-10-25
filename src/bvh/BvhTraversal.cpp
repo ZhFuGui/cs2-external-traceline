@@ -1,42 +1,30 @@
 #include "Bvh.h"
-#include <vector>
+#include <algorithm>
 
 namespace cs2::traceline {
-void traverse(const Scene &scene, const Ray &ray, double low, double &high,
-              const std::function<bool(uint32_t)> &visitor) {
-    if (scene.nodes.empty()) {
-        return;
-    }
-    std::vector<uint32_t> stack;
-    stack.reserve(64);
-    stack.push_back(0);
-    while (!stack.empty()) {
-        const uint32_t index = stack.back();
-        stack.pop_back();
-        const auto &node = scene.nodes[index];
-        double entry{};
-        if (!intersects(node.bounds, ray, low, high, entry)) {
+bool has_nested_inside(const Scene &scene, std::span<const uint32_t> sorted_inside) {
+    for (const auto id : sorted_inside) {
+        const auto &solid = scene.solids[id];
+        if (solid.container == CS2TL_INVALID_ID) {
             continue;
         }
-        if (node.leaf()) {
-            for (uint32_t i = 0; i < node.count; ++i) {
-                if (!visitor(scene.order[node.first + i])) {
-                    return;
+        const auto &group = scene.object_groups[solid.group];
+        bool nested = false;
+        visit_index(
+            scene.object_nodes, scene.object_order, group.root,
+            [&](const Aabb &bounds) { return bounds.contains(solid.bounds); },
+            [&](uint32_t other) {
+                if (other != id && scene.solids[other].bounds.contains(solid.bounds) &&
+                    std::binary_search(sorted_inside.begin(), sorted_inside.end(), other)) {
+                    nested = true;
+                    return false;
                 }
-            }
-        } else {
-            double a{}, b{};
-            const bool hit_left = intersects(scene.nodes[node.left].bounds, ray, low, high, a);
-            const bool hit_right = intersects(scene.nodes[node.right].bounds, ray, low, high, b);
-            if (hit_left && hit_right) {
-                stack.push_back(a <= b ? node.right : node.left);
-                stack.push_back(a <= b ? node.left : node.right);
-            } else if (hit_left) {
-                stack.push_back(node.left);
-            } else if (hit_right) {
-                stack.push_back(node.right);
-            }
+                return true;
+            });
+        if (nested) {
+            return true;
         }
     }
+    return false;
 }
 } // namespace cs2::traceline

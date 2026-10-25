@@ -79,7 +79,7 @@ const char *path(const char *value) {
     return value;
 }
 template <class T>
-void copy_result(const std::vector<T> &values, T *buffer, uint32_t capacity, uint32_t *count) {
+void copy_result(std::span<const T> values, T *buffer, uint32_t capacity, uint32_t *count) {
     tl::require(count != nullptr, CS2TL_INVALID_ARGUMENT, "Result count is required.");
     tl::require(buffer != nullptr || capacity == 0, CS2TL_INVALID_ARGUMENT,
                 "Null buffer with nonzero capacity.");
@@ -193,7 +193,8 @@ cs2tl_status CS2TL_CALL cs2tl_is_occluded(const cs2tl_scene *scene, const cs2tl_
         const auto &data = checked(scene);
         const auto query = ray(segment);
         tl::require(out != nullptr, CS2TL_INVALID_ARGUMENT, "Occlusion output is required.");
-        *out = tl::is_occluded(data, query) ? 1u : 0u;
+        tl::QueryLease lease;
+        *out = tl::is_occluded(data, query, lease.get()) ? 1u : 0u;
     });
 }
 cs2tl_status CS2TL_CALL cs2tl_trace_closest(const cs2tl_scene *scene, const cs2tl_segment *segment,
@@ -208,7 +209,8 @@ cs2tl_status CS2TL_CALL cs2tl_trace_closest(const cs2tl_scene *scene, const cs2t
         const auto &data = checked(scene);
         const auto query = ray(segment);
         tl::require(hit && found, CS2TL_INVALID_ARGUMENT, "Hit and found outputs are required.");
-        if (const auto nearest = tl::trace_closest(data, query)) {
+        tl::QueryLease lease;
+        if (const auto nearest = tl::trace_closest(data, query, lease.get())) {
             *hit = tl::external_hit(data, query, *nearest);
             *found = 1;
         }
@@ -225,13 +227,17 @@ cs2tl_status CS2TL_CALL cs2tl_trace_all(const cs2tl_scene *scene, const cs2tl_se
         const auto query = ray(segment);
         tl::require(count && (buffer || capacity == 0), CS2TL_INVALID_ARGUMENT,
                     "Invalid result buffer/count.");
-        const auto hits = tl::trace_all(data, query);
-        std::vector<cs2tl_hit> external;
-        external.reserve(hits.size());
-        for (const auto &h : hits) {
-            external.push_back(tl::external_hit(data, query, h));
+        tl::QueryLease lease;
+        const auto hits = tl::trace_all_into(data, query, lease.get());
+        *count = static_cast<uint32_t>(hits.size());
+        if (!buffer && capacity == 0) {
+            return;
         }
-        copy_result(external, buffer, capacity, count);
+        tl::require(capacity >= hits.size(), CS2TL_BUFFER_TOO_SMALL,
+                    "Result buffer is too small; required count was returned.");
+        for (size_t i = 0; i < hits.size(); ++i) {
+            buffer[i] = tl::external_hit(data, query, hits[i]);
+        }
     });
 }
 cs2tl_status CS2TL_CALL cs2tl_query_intervals(const cs2tl_scene *scene, const cs2tl_segment *segment,
@@ -245,7 +251,8 @@ cs2tl_status CS2TL_CALL cs2tl_query_intervals(const cs2tl_scene *scene, const cs
         const auto query = ray(segment);
         tl::require(count && (buffer || capacity == 0), CS2TL_INVALID_ARGUMENT,
                     "Invalid interval buffer/count.");
-        copy_result(tl::query_intervals(data, query), buffer, capacity, count);
+        tl::QueryLease lease;
+        copy_result(tl::query_intervals_into(data, query, lease.get()), buffer, capacity, count);
     });
 }
 cs2tl_status CS2TL_CALL cs2tl_simulate_shot(const cs2tl_scene *scene, const cs2tl_shot_request *request,

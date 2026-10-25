@@ -79,8 +79,7 @@ bool contains(const Scene &scene, const Solid &solid, Vec3 point) {
     const double scale = std::max({(solid.bounds.hi - solid.bounds.lo).length(), std::abs(point.x),
                                    std::abs(point.y), std::abs(point.z)});
     const double boundary_epsilon = 64 * std::numeric_limits<double>::epsilon() * scale;
-    if (!scene.nodes.empty()) {
-        const auto solid_id = static_cast<uint32_t>(&solid - scene.solids.data());
+    {
         const double distance_limit = 2 * (solid.bounds.hi - solid.bounds.lo).length();
         const std::array directions{Vec3{1, 0.3713906763541037, 0.6947465906068658},
                                     Vec3{0.238617320472852, 1, 0.5176380902050415},
@@ -92,11 +91,8 @@ bool contains(const Scene &scene, const Solid &solid, Vec3 point) {
             double high = distance_limit;
             int winding = 0;
             bool ambiguous = false, boundary = false;
-            traverse(scene, test, -boundary_epsilon, high, [&](uint32_t index) {
+            auto inspect = [&](uint32_t index) {
                 const auto &tri = scene.triangles[index];
-                if (tri.solid != solid_id) {
-                    return true;
-                }
                 if (tri.bounds().contains(point, boundary_epsilon) &&
                     point_on_triangle(point, tri, boundary_epsilon)) {
                     boundary = true;
@@ -113,7 +109,19 @@ bool contains(const Scene &scene, const Solid &solid, Vec3 point) {
                     winding += facing > 0 ? 1 : -1;
                 }
                 return true;
-            });
+            };
+            if (solid.point_root != CS2TL_INVALID_ID) {
+                traverse_nodes<IndexNode>(scene.point_nodes, scene.point_order, solid.point_root, test,
+                                          -boundary_epsilon, high, inspect);
+            } else if (solid.triangles.size() == scene.triangles.size() && !scene.nodes.empty()) {
+                traverse(scene, test, -boundary_epsilon, high, inspect);
+            } else {
+                for (const auto index : solid.triangles) {
+                    if (!inspect(index)) {
+                        break;
+                    }
+                }
+            }
             if (boundary) {
                 return false;
             }

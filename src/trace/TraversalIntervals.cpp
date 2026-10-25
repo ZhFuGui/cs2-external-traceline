@@ -1,43 +1,58 @@
 #include "TraceQuery.h"
+#include "bvh/Bvh.h"
 #include "diagnostics/Error.h"
 #include <algorithm>
 
 namespace cs2::traceline {
-std::vector<cs2tl_interval> query_intervals(const Scene &scene, const Ray &ray) {
+std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const Ray &ray,
+                                                     QueryWorkspace &workspace) {
     require((scene.flags & CS2TL_SCENE_APPROXIMATE) == 0, CS2TL_INCOMPLETE_GEOMETRY,
             "Exact thickness is unavailable for a scene containing approximated hulls.");
-    auto hits = trace_all(scene, ray);
-    std::vector<std::vector<Hit>> by_solid(scene.solids.size());
-    for (const auto &hit : hits) {
-        by_solid[scene.triangles[hit.triangle].solid].push_back(hit);
-    }
-    std::vector<uint32_t> candidates;
-    for (uint32_t id = 0; id < scene.solids.size(); ++id) {
-        const auto &solid = scene.solids[id];
-        double entry{};
-        if (!intersects(solid.bounds, ray, ray.low, ray.high, entry)) {
-            continue;
-        }
-        require(solid.closed, CS2TL_INCOMPLETE_GEOMETRY,
-                "Segment overlaps the bounds of open/nonmanifold solid " + std::to_string(id));
-        candidates.push_back(id);
+    auto hits = trace_all_into(scene, ray, workspace, false);
+    auto &candidates = workspace.candidates;
+    candidates.clear();
+    visit_index(
+        scene.solid_nodes, scene.solid_order, 0,
+        [&](const Aabb &bounds) {
+            double entry{};
+            return intersects(bounds, ray, ray.low, ray.high, entry);
+        },
+        [&](uint32_t id) {
+            double entry{};
+            if (intersects(scene.solids[id].bounds, ray, ray.low, ray.high, entry)) {
+                candidates.push_back(id);
+            }
+            return true;
+        });
+    std::sort(candidates.begin(), candidates.end());
+    for (const auto id : candidates) {
+        require_lazy(scene.solids[id].closed, CS2TL_INCOMPLETE_GEOMETRY, [&] {
+            return "Segment overlaps the bounds of open/nonmanifold solid " + std::to_string(id);
+        });
     }
     // A disconnected inner shell may represent a cavity rather than another
     // filled solid. The text format supplies no explicit CSG semantics here.
     // Reject this ambiguity instead of assigning false thickness to empty space.
-    for (size_t i = 0; i < candidates.size(); ++i) {
-        for (size_t j = i + 1; j < candidates.size(); ++j) {
-            const auto &a = scene.solids[candidates[i]];
-            const auto &b = scene.solids[candidates[j]];
-            require(a.object != b.object || (!a.bounds.contains(b.bounds) && !b.bounds.contains(a.bounds)),
-                    CS2TL_INCOMPLETE_GEOMETRY,
-                    "Nested shells of one source object require explicit solid/cavity decomposition.");
-        }
+    // If a candidate has a same-object containing box, that containing box MUST
+    // also intersect this segment. One precomputed witness exactly replaces the
+    // old candidate-pair predicate; no pair list or quadratic query is needed.
+    for (const auto id : candidates) {
+        require(scene.solids[id].container == CS2TL_INVALID_ID, CS2TL_INCOMPLETE_GEOMETRY,
+                "Nested shells of one source object require explicit solid/cavity decomposition.");
     }
-    std::vector<cs2tl_interval> result;
+    auto &result = workspace.intervals;
+    result.clear();
+    size_t cursor = 0;
     for (uint32_t id : candidates) {
         const auto &solid = scene.solids[id];
-        const auto &events = by_solid[id];
+        while (cursor < hits.size() && scene.triangles[hits[cursor].triangle].solid < id) {
+            ++cursor;
+        }
+        const size_t first_event = cursor;
+        while (cursor < hits.size() && scene.triangles[hits[cursor].triangle].solid == id) {
+            ++cursor;
+        }
+        const auto events = hits.subspan(first_event, cursor - first_event);
         const double first = events.empty() ? ray.high : events.front().distance;
         bool inside = contains(scene, solid, ray.at(ray.low + (first - ray.low) * 0.5));
         double entry = ray.low;
@@ -84,5 +99,10 @@ std::vector<cs2tl_interval> query_intervals(const Scene &scene, const Ray &ray) 
                                                     : a.solid_id < b.solid_id;
     });
     return result;
+}
+std::vector<cs2tl_interval> query_intervals(const Scene &scene, const Ray &ray) {
+    QueryWorkspace workspace;
+    query_intervals_into(scene, ray, workspace);
+    return std::move(workspace.intervals);
 }
 } // namespace cs2::traceline

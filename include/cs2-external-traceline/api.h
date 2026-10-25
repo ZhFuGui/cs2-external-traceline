@@ -19,7 +19,9 @@ extern "C" {
 /* All strings are UTF-8. All optional error outputs must set struct_size first.
  * Output handles are NULL on failure; the DLL owns and destroys their storage.
  * Scenes support concurrent reads. Never destroy a scene during a query.
- * Options may be NULL for defaults. No API retains caller-owned input pointers. */
+ * Options may be NULL for defaults. No API retains caller-owned input pointers.
+ * Queries reuse per-thread scratch (up to 4 MiB retained); reentrant calls use
+ * separate scratch. Finish calling threads before unloading the DLL. */
 CS2TL_API uint32_t CS2TL_CALL cs2tl_get_abi_version(void);
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_build_cache(const char *input_path, const char *output_path,
                                                     const cs2tl_build_options *options, cs2tl_error *error);

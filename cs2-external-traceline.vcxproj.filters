@@ -34,6 +34,9 @@
     <ClCompile Include="src\bvh\BvhTraversal.cpp">
       <Filter>src\bvh</Filter>
     </ClCompile>
+    <ClCompile Include="src\bvh\QueryIndices.cpp">
+      <Filter>src\bvh</Filter>
+    </ClCompile>
     <ClCompile Include="src\trace\TraceQuery.cpp">
       <Filter>src\trace</Filter>
     </ClCompile>

@@ -33,7 +33,7 @@ class Builder {
             centroids.extend(centers[scene.order[i]]);
         }
         scene.nodes[index].bounds = box;
-        if (end - begin <= scene.leaf_size || depth >= 48) {
+        if (end - begin <= scene.leaf_size || depth >= bvh_max_depth) {
             scene.nodes[index].first = begin;
             scene.nodes[index].count = end - begin;
             return index;

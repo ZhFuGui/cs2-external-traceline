@@ -25,6 +25,9 @@ struct Solid {
     bool closed{};
     Aabb bounds;
     std::vector<uint32_t> triangles;
+    uint32_t group{CS2TL_INVALID_ID};
+    uint32_t container{CS2TL_INVALID_ID};
+    uint32_t point_root{CS2TL_INVALID_ID};
 };
 struct BvhNode {
     Aabb bounds;
@@ -33,6 +36,16 @@ struct BvhNode {
 };
 struct BuildOptions {
     uint32_t flags{}, leaf_size{4};
+};
+// Bounds are extrema of float32 vertices; slab arithmetic remains double.
+struct IndexNode {
+    cs2tl_vec3 lo{}, hi{};
+    uint32_t first{}, count{}, left{}, right{};
+    bool leaf() const { return count != 0; }
+    Aabb bounds() const { return {Vec3(lo), Vec3(hi)}; }
+};
+struct ObjectGroup {
+    uint32_t first{}, count{}, root{CS2TL_INVALID_ID};
 };
 struct Scene {
     std::vector<Triangle> triangles;
@@ -43,6 +56,13 @@ struct Scene {
     uint32_t leaf_size{4};
     uint64_t fingerprint{};
     std::vector<uint32_t> surface_hashes;
+    std::vector<IndexNode> solid_nodes;
+    std::vector<uint32_t> solid_order;
+    std::vector<ObjectGroup> object_groups;
+    std::vector<IndexNode> object_nodes;
+    std::vector<uint32_t> object_order;
+    std::vector<IndexNode> point_nodes;
+    std::vector<uint32_t> point_order;
 };
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true);
 } // namespace cs2::traceline

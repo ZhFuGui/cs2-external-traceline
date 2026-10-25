@@ -1,5 +1,6 @@
 #include "CacheFormat.h"
 #include "FileIO.h"
+#include "bvh/Bvh.h"
 #include "diagnostics/Error.h"
 #include <algorithm>
 #include <bit>
@@ -51,8 +52,8 @@ void validate_tree(const Scene &scene) {
     while (!pending.empty()) {
         const auto [index, depth] = pending.back();
         pending.pop_back();
-        require(index < scene.nodes.size() && !seen_node[index] && depth <= 48, CS2TL_CORRUPT_CACHE,
-                "Invalid/cyclic/deep BVH node.");
+        require(index < scene.nodes.size() && !seen_node[index] && depth <= bvh_max_depth,
+                CS2TL_CORRUPT_CACHE, "Invalid/cyclic/deep BVH node.");
         seen_node[index] = true;
         const auto &node = scene.nodes[index];
         require(node.bounds.lo.x <= node.bounds.hi.x && node.bounds.lo.y <= node.bounds.hi.y &&
