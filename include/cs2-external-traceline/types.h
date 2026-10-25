@@ -37,7 +37,7 @@ enum { CS2TL_BUILD_ALL_COLLISION_GROUPS = 1u << 0, CS2TL_BUILD_APPROXIMATE_HULLS
 typedef struct cs2tl_build_options {
     uint32_t struct_size;
     uint32_t flags;
-    uint32_t leaf_size; /* 0 selects 4; valid explicit range: 1..64. */
+    uint32_t leaf_size; /* 0 selects 4; values above 64 produce a performance warning. */
     uint32_t reserved;
 } cs2tl_build_options;
 

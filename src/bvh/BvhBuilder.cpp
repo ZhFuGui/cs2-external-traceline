@@ -1,4 +1,5 @@
 #include "Bvh.h"
+#include "diagnostics/Error.h"
 #include <algorithm>
 #include <array>
 #include <numeric>
@@ -25,6 +26,8 @@ class Builder {
         }
     }
     uint32_t node(uint32_t begin, uint32_t end, uint32_t depth) {
+        require(scene.nodes.size() < UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+                "BVH node indices exceed uint32 representation.");
         const uint32_t index = static_cast<uint32_t>(scene.nodes.size());
         scene.nodes.emplace_back();
         Aabb box, centroids;

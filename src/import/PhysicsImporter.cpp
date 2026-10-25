@@ -29,12 +29,17 @@ Transform multiply(const Transform &a, const Transform &b) {
     return result;
 }
 void flatten(const Value &value, std::vector<double> &out) {
-    if (value.kind == Kind::array) {
-        for (const auto &child : value.children) {
-            flatten(child, out);
+    std::vector<const Value *> pending{&value};
+    while (!pending.empty()) {
+        const auto *current = pending.back();
+        pending.pop_back();
+        if (current->kind == Kind::array) {
+            for (auto it = current->children.rbegin(); it != current->children.rend(); ++it) {
+                pending.push_back(&*it);
+            }
+        } else {
+            out.push_back(text::number(*current));
         }
-    } else {
-        out.push_back(text::number(value));
     }
 }
 Transform transform(const Value &value) {
@@ -116,8 +121,8 @@ class Importer {
                 hull ? text::decode_hull(descriptor, object,
                                          (options.flags & CS2TL_BUILD_APPROXIMATE_HULLS) != 0, approximate)
                      : text::decode_mesh(descriptor, object);
-            require(triangles.size() + decoded.size() <= max_triangles, CS2TL_INVALID_GEOMETRY,
-                    "Scene triangle limit exceeded.", descriptor.offset);
+            require(triangles.size() + decoded.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+                    "Scene indices exceed uint32 representation.", descriptor.offset);
             for (auto &t : decoded) {
                 t.a = pose.apply(t.a);
                 t.b = pose.apply(t.b);
@@ -129,64 +134,86 @@ class Importer {
 
   public:
     explicit Importer(BuildOptions value) : options(value) {}
-    void walk(const Value &node, const Value *attributes = nullptr, const Transform &pose = {}) {
-        if (node.kind == Kind::array) {
-            for (const auto &child : node.children) {
-                walk(child, attributes, pose);
+    void walk(const Value &root, const Value *attributes = nullptr, const Transform &pose = {}) {
+        struct Frame {
+            const Value *node;
+            const Value *attributes;
+            Transform pose;
+            size_t next{};
+            const Value *part_bind{};
+            bool entered{};
+        };
+        std::vector<Frame> pending{{&root, attributes, pose}};
+        while (!pending.empty()) {
+            auto &frame = pending.back();
+            const auto &node = *frame.node;
+            if (node.kind != Kind::array && node.kind != Kind::object) {
+                pending.pop_back();
+                continue;
             }
-            return;
-        }
-        if (node.kind != Kind::object) {
-            return;
-        }
-        if (const auto *local = node.get("m_collisionAttributes")) {
-            attributes = local;
-        }
-        if (const auto *table = node.get("m_surfacePropertyHashes")) {
-            auto local = text::uints(*table);
-            require(local.size() <= 1'000'000, CS2TL_UNSUPPORTED_FORMAT, "Surface table exceeds size limit.",
-                    table->offset);
-            require(hashes.empty() || hashes == local, CS2TL_UNSUPPORTED_FORMAT,
-                    "Conflicting surface property tables.", table->offset);
-            hashes = std::move(local);
-        }
-        const auto *parts = node.get("m_parts");
-        const auto *bind = node.get("m_bindPose");
-        if (bind) {
-            require(bind->kind == Kind::array, CS2TL_UNSUPPORTED_FORMAT,
-                    "Bind pose must be an array of matrices.", bind->offset);
-        }
-        if (bind && !bind->children.empty()) {
-            require(parts != nullptr, CS2TL_UNSUPPORTED_FORMAT, "Bind pose without parts.", bind->offset);
-        }
-        for (size_t i = 0; i < node.keys.size(); ++i) {
-            const auto &key = node.keys[i];
-            const auto &value = node.children[i];
+            if (!frame.entered) {
+                frame.entered = true;
+                if (node.kind == Kind::object) {
+                    if (const auto *local = node.get("m_collisionAttributes")) {
+                        frame.attributes = local;
+                    }
+                    if (const auto *table = node.get("m_surfacePropertyHashes")) {
+                        auto local = text::uints(*table);
+                        require(local.size() <= uint64_t(INT32_MAX) + 1, CS2TL_UNSUPPORTED_FORMAT,
+                                "Surface indices exceed int32 representation.", table->offset);
+                        if (local.size() > 1'000'000) {
+                            warn("Large surface property table (>1000000); processing continues.",
+                                 table->offset);
+                        }
+                        require(hashes.empty() || hashes == local, CS2TL_UNSUPPORTED_FORMAT,
+                                "Conflicting surface property tables.", table->offset);
+                        hashes = std::move(local);
+                    }
+                    const auto *bind = node.get("m_bindPose");
+                    if (bind) {
+                        require(bind->kind == Kind::array, CS2TL_UNSUPPORTED_FORMAT,
+                                "Bind pose must be an array of matrices.", bind->offset);
+                        if (!bind->children.empty()) {
+                            require(node.get("m_parts") != nullptr, CS2TL_UNSUPPORTED_FORMAT,
+                                    "Bind pose without parts.", bind->offset);
+                        }
+                    }
+                }
+            }
+            if (frame.next == node.children.size()) {
+                pending.pop_back();
+                continue;
+            }
+            const auto index = frame.next++;
+            const auto &value = node.children[index];
+            if (node.kind == Kind::array) {
+                auto child_pose = frame.pose;
+                if (frame.part_bind && !frame.part_bind->children.empty()) {
+                    child_pose = multiply(child_pose, transform(frame.part_bind->children[index]));
+                }
+                pending.push_back({&value, frame.attributes, child_pose});
+                continue;
+            }
+            const auto &key = node.keys[index];
             if (key == "m_meshes") {
-                shapes(value, false, attributes, pose);
+                shapes(value, false, frame.attributes, frame.pose);
             } else if (key == "m_hulls") {
-                shapes(value, true, attributes, pose);
+                shapes(value, true, frame.attributes, frame.pose);
             } else if (key == "m_spheres" || key == "m_capsules" || key == "m_compounds") {
-                require_lazy(
-                    value.kind == Kind::array, CS2TL_PARSE_ERROR,
-                    [&] { return "Shape field must be an array: " + key; }, value.offset);
-                require_lazy(
-                    value.children.empty(), CS2TL_UNSUPPORTED_FORMAT,
-                    [&] { return "Unsupported collision shape array: " + key; }, value.offset);
+                require_lazy(value.kind == Kind::array, CS2TL_PARSE_ERROR,
+                             [&] { return "Shape field must be an array: " + key; }, value.offset);
+                require_lazy(value.children.empty(), CS2TL_UNSUPPORTED_FORMAT,
+                             [&] { return "Unsupported collision shape array: " + key; }, value.offset);
             } else if (key == "m_parts") {
+                const auto *bind = node.get("m_bindPose");
                 require(value.kind == Kind::array, CS2TL_PARSE_ERROR, "Parts must be an array.",
                         value.offset);
-                require(!bind || (bind->kind == Kind::array &&
-                                  (bind->children.empty() || bind->children.size() == value.children.size())),
+                require(!bind || bind->children.empty() || bind->children.size() == value.children.size(),
                         CS2TL_UNSUPPORTED_FORMAT, "Bind pose count must match parts.", value.offset);
-                for (size_t p = 0; p < value.children.size(); ++p) {
-                    const Transform part_pose =
-                        bind && !bind->children.empty() ? multiply(pose, transform(bind->children[p])) : pose;
-                    walk(value.children[p], attributes, part_pose);
-                }
+                pending.push_back({&value, frame.attributes, frame.pose, 0, bind});
             } else if (key != "m_collisionAttributes" && key != "m_surfacePropertyHashes" &&
                        key != "m_bindPose") {
-                walk(value, attributes, pose);
+                pending.push_back({&value, frame.attributes, frame.pose});
             }
         }
     }
@@ -208,13 +235,18 @@ class Importer {
 };
 } // namespace
 Scene import_physics(const std::filesystem::path &path, BuildOptions options) {
-    const auto data = read_file(path);
-    require(!data.empty(), CS2TL_PARSE_ERROR, "Physics text is empty.", 0);
-    const auto root = text::parse(std::string_view(reinterpret_cast<const char *>(data.data()), data.size()));
     Importer importer(options);
-    importer.walk(root);
+    uint64_t source_fingerprint{};
+    {
+        const auto data = read_file(path);
+        require(!data.empty(), CS2TL_PARSE_ERROR, "Physics text is empty.", 0);
+        const auto root =
+            text::parse(std::string_view(reinterpret_cast<const char *>(data.data()), data.size()));
+        importer.walk(root);
+        source_fingerprint = fingerprint(data);
+    } // Release the text tree and input buffer before building topology/BVH.
     auto scene = importer.finish();
-    scene.fingerprint = fingerprint(data);
+    scene.fingerprint = source_fingerprint;
     return scene;
 }
 } // namespace cs2::traceline

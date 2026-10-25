@@ -72,6 +72,7 @@ struct Scene {
     std::vector<uint32_t> point_order;
     std::vector<TriangleQuery> query_triangles;
     std::vector<Vec3> triangle_normals;
+    bool deep_bvh{};
 };
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true, bool preserve_orientation = false);
 } // namespace cs2::traceline

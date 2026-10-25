@@ -37,7 +37,11 @@ std::vector<uint8_t> read_file(const std::filesystem::path &path) {
     const auto end = stream.tellg();
     require(end >= 0, CS2TL_IO_ERROR, "Cannot determine input size.");
     const auto size = static_cast<uint64_t>(end);
-    require(size <= max_file_bytes, CS2TL_UNSUPPORTED_FORMAT, "Input exceeds the 512 MiB limit.");
+    if (size > large_file_notice) {
+        warn("Large input file (>512 MiB); processing continues.");
+    }
+    require(size <= std::vector<uint8_t>{}.max_size(), CS2TL_OUT_OF_MEMORY,
+            "Input size cannot be represented by this process.");
     std::vector<uint8_t> bytes(static_cast<size_t>(size));
     stream.seekg(0);
     if (size) {

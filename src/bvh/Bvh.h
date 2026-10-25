@@ -2,6 +2,7 @@
 #include "scene/Scene.h"
 #include <array>
 #include <span>
+#include <type_traits>
 
 namespace cs2::traceline {
 void build_bvh(Scene &scene);
@@ -17,8 +18,8 @@ inline Aabb node_bounds(const IndexNode &node) {
     return node.bounds();
 }
 
-// Builders and cache validation enforce depth <= 48. Cached entry distances
-// avoid testing a child again on pop after a nearest query lowers high.
+// Normal builders stop splitting at depth 48 without dropping any geometry.
+// External deeper caches remain valid and spill only when the local stack fills.
 template <class Node, class Visitor>
 void traverse_nodes(std::span<const Node> nodes, std::span<const uint32_t> order, uint32_t root,
                     const Ray &ray, double low, double &high, Visitor &&visitor) {
@@ -63,9 +64,82 @@ void traverse_nodes(std::span<const Node> nodes, std::span<const uint32_t> order
         }
     }
 }
+template <class Node, class Visitor>
+#if defined(_MSC_VER)
+__declspec(noinline)
+#endif
+void traverse_nodes_deep(std::span<const Node> nodes, std::span<const uint32_t> order, uint32_t root,
+                    const Ray &ray, double low, double &high, Visitor &&visitor) {
+    if (nodes.empty() || root == CS2TL_INVALID_ID) {
+        return;
+    }
+    double entry{};
+    if (!intersects(node_bounds(nodes[root]), ray, low, high, entry)) {
+        return;
+    }
+    struct Pending {
+        uint32_t node;
+        double entry;
+    };
+    std::array<Pending, traversal_stack_capacity> stack;
+    std::vector<Pending> overflow;
+    size_t size = 0;
+    auto push = [&](Pending value) {
+        if constexpr (true) {
+            if (size >= stack.size()) {
+                overflow.push_back(value);
+                ++size;
+                return;
+            }
+        }
+        stack[size++] = value;
+    };
+    auto pop = [&]() {
+        if constexpr (true) {
+            if (size > stack.size()) {
+                auto value = overflow.back();
+                overflow.pop_back();
+                --size;
+                return value;
+            }
+        }
+        return stack[--size];
+    };
+    push({root, entry});
+    while (size) {
+        const auto pending = pop();
+        if (pending.entry > high) {
+            continue;
+        }
+        const auto &node = nodes[pending.node];
+        if (node.leaf()) {
+            for (uint32_t i = 0; i < node.count; ++i) {
+                if (!visitor(order[node.first + i])) {
+                    return;
+                }
+            }
+        } else {
+            double a{}, b{};
+            const bool left = intersects(node_bounds(nodes[node.left]), ray, low, high, a);
+            const bool right = intersects(node_bounds(nodes[node.right]), ray, low, high, b);
+            if (left && right) {
+                push(a <= b ? Pending{node.right, b} : Pending{node.left, a});
+                push(a <= b ? Pending{node.left, a} : Pending{node.right, b});
+            } else if (left) {
+                push({node.left, a});
+            } else if (right) {
+                push({node.right, b});
+            }
+        }
+    }
+}
 template <class Visitor>
 void traverse(const Scene &scene, const Ray &ray, double low, double &high, Visitor &&visitor) {
-    traverse_nodes<BvhNode>(scene.nodes, scene.order, 0, ray, low, high, visitor);
+    if (scene.deep_bvh) [[unlikely]] {
+        traverse_nodes_deep<BvhNode>(scene.nodes, scene.order, 0, ray, low, high, visitor);
+    } else {
+        traverse_nodes<BvhNode>(scene.nodes, scene.order, 0, ray, low, high, visitor);
+    }
 }
 template <class Predicate, class Visitor>
 void visit_index(std::span<const IndexNode> nodes, std::span<const uint32_t> order, uint32_t root,

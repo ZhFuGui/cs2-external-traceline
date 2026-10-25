@@ -67,8 +67,8 @@ std::vector<Vec3> vertices(const Value &value) {
             }
         }
     }
-    require(result.size() <= max_triangles * 3ull, CS2TL_INVALID_GEOMETRY, "Vertex limit exceeded.",
-            value.offset);
+    require(result.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+            "Vertex indices exceed uint32 representation.", value.offset);
     return result;
 }
 std::vector<Triangle> decode_mesh(const Value &descriptor, uint32_t object) {
@@ -93,8 +93,8 @@ std::vector<Triangle> decode_mesh(const Value &descriptor, uint32_t object) {
             indices.push_back({tri[0], tri[1], tri[2]});
         }
     }
-    require(indices.size() <= max_triangles, CS2TL_INVALID_GEOMETRY, "Triangle limit exceeded.",
-            source.offset);
+    require(indices.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+            "Triangle indices exceed uint32 representation.", source.offset);
     int32_t surface = CS2TL_UNKNOWN_SURFACE;
     if (const auto *field = descriptor.get("m_nSurfacePropertyIndex")) {
         const auto n = integer(*field);

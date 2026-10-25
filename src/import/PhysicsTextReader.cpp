@@ -169,9 +169,11 @@ class Reader {
         }
         return std::string(input.substr(begin, pos - begin));
     }
-    Value value(unsigned depth) {
-        if (depth > 64 || ++count > 2'000'000) {
-            fail("Text nesting/node limit exceeded.");
+    bool node_notice{}, depth_notice{};
+    Value begin_value() {
+        if (++count > 2'000'000 && !node_notice) {
+            node_notice = true;
+            warn("Large physics text (>2000000 values); parsing continues.", pos);
         }
         skip();
         if (pos >= input.size()) {
@@ -182,31 +184,6 @@ class Reader {
         if (input[pos] == '{' || input[pos] == '[') {
             const char close = input[pos] == '{' ? '}' : ']';
             out.kind = close == '}' ? Kind::object : Kind::array;
-            ++pos;
-            skip();
-            std::unordered_set<std::string> keys;
-            while (pos < input.size() && input[pos] != close) {
-                if (out.kind == Kind::object) {
-                    auto key = token();
-                    skip();
-                    if (pos >= input.size() || input[pos++] != '=') {
-                        fail("Expected '=' after field name.");
-                    }
-                    if (!keys.insert(key).second) {
-                        fail("Duplicate field: " + key);
-                    }
-                    out.keys.push_back(std::move(key));
-                }
-                out.children.push_back(value(depth + 1));
-                skip();
-                if (pos < input.size() && input[pos] == ',') {
-                    ++pos;
-                    skip();
-                }
-            }
-            if (pos >= input.size()) {
-                fail("Unterminated object/array.");
-            }
             ++pos;
             return out;
         }
@@ -221,12 +198,18 @@ class Reader {
             pos = end + 1;
             return out;
         }
-        out.scalar = token();
-        skip();
-        if (pos < input.size() && input[pos] == ':') {
+        do {
+            out.scalar = token();
+            skip();
+            if (pos >= input.size() || input[pos] != ':') {
+                return out;
+            }
             ++pos;
-            return value(depth + 1);
-        }
+            skip();
+            if (pos < input.size() && (input[pos] == '{' || input[pos] == '[' || starts("#["))) {
+                return begin_value();
+            }
+        } while (true);
         return out;
     }
 
@@ -237,7 +220,61 @@ class Reader {
         }
     }
     Value read() {
-        auto root = value(0);
+        auto root = begin_value();
+        struct Frame {
+            Value *value;
+            std::unordered_set<std::string> keys;
+        };
+        std::vector<Frame> stack;
+        auto push = [&](Value &value) {
+            if (value.kind == Kind::array || value.kind == Kind::object) {
+                stack.push_back({&value, {}});
+                if (stack.size() > 64 && !depth_notice) {
+                    depth_notice = true;
+                    warn("Deep physics text (>64 levels); iterative parsing continues.", pos);
+                }
+            }
+        };
+        push(root);
+        while (!stack.empty()) {
+            skip();
+            auto &frame = stack.back();
+            auto &parent = *frame.value;
+            const char close = parent.kind == Kind::object ? '}' : ']';
+            if (pos >= input.size()) {
+                fail("Unterminated object/array.");
+            }
+            if (input[pos] == close) {
+                ++pos;
+                stack.pop_back();
+                skip();
+                if (!stack.empty() && pos < input.size() && input[pos] == ',') {
+                    ++pos;
+                }
+                continue;
+            }
+            if (parent.kind == Kind::object) {
+                auto key = token();
+                skip();
+                if (pos >= input.size() || input[pos++] != '=') {
+                    fail("Expected '=' after field name.");
+                }
+                if (!frame.keys.insert(key).second) {
+                    fail("Duplicate field: " + key);
+                }
+                parent.keys.push_back(std::move(key));
+            }
+            parent.children.push_back(begin_value());
+            auto &child = parent.children.back();
+            if (child.kind == Kind::object || child.kind == Kind::array) {
+                push(child);
+            } else {
+                skip();
+                if (pos < input.size() && input[pos] == ',') {
+                    ++pos;
+                }
+            }
+        }
         skip();
         if (pos != input.size()) {
             fail("Trailing text after root value.");

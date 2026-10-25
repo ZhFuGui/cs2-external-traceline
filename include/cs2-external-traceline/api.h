@@ -24,6 +24,10 @@ extern "C" {
  * and reentrant calls use separate workspaces. Destroying the scene releases
  * all of them. No query history or owning thread-local scene cache is kept. */
 CS2TL_API uint32_t CS2TL_CALL cs2tl_get_abi_version(void);
+/* Per calling thread. NULL restores debugger output. The message is borrowed
+ * for the callback duration; no warning history is retained by the DLL. */
+typedef void(CS2TL_CALL *cs2tl_warning_callback)(void *user, const char *message, uint64_t offset);
+CS2TL_API void CS2TL_CALL cs2tl_set_warning_callback(cs2tl_warning_callback callback, void *user);
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_build_cache(const char *input_path, const char *output_path,
                                                     const cs2tl_build_options *options, cs2tl_error *error);
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_load_scene(const char *cache_path, cs2tl_scene **out_scene,

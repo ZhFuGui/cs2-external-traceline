@@ -67,9 +67,15 @@ uint32_t bits(double value) {
 } // namespace
 
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool build_acceleration, bool preserve_orientation) {
-    require(triangles.size() <= max_triangles, CS2TL_INVALID_GEOMETRY, "Triangle limit exceeded.");
-    require(options.leaf_size >= 1 && options.leaf_size <= 64, CS2TL_INVALID_ARGUMENT,
-            "BVH leaf size must be in 1..64.");
+    require(triangles.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+            "Triangle indices exceed uint32 representation.");
+    if (triangles.size() > large_triangle_notice) {
+        warn("Large scene (>4000000 triangles); processing continues.");
+    }
+    require(options.leaf_size >= 1, CS2TL_INVALID_ARGUMENT, "BVH leaf size must be positive.");
+    if (options.leaf_size > 64) {
+        warn("Large BVH leaf size (>64) may reduce query performance; processing continues.");
+    }
     Scene scene;
     scene.leaf_size = options.leaf_size;
     scene.triangles = std::move(triangles);

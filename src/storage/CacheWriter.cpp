@@ -29,8 +29,14 @@ void save_cache(const Scene &scene, const std::filesystem::path &path) {
     const uint64_t payload_size = uint64_t(scene.triangles.size()) * 44 + uint64_t(scene.nodes.size()) * 40 +
                                   uint64_t(scene.order.size()) * 4 +
                                   uint64_t(scene.surface_hashes.size()) * 4;
-    require(payload_size <= max_file_bytes - cache_header_size, CS2TL_UNSUPPORTED_FORMAT,
-            "Cache exceeds size limit.");
+    require(scene.triangles.size() <= UINT32_MAX && scene.nodes.size() <= UINT32_MAX &&
+                scene.order.size() <= UINT32_MAX && scene.surface_hashes.size() <= UINT32_MAX,
+            CS2TL_UNSUPPORTED_FORMAT, "Cache counts exceed uint32 representation.");
+    if (payload_size + cache_header_size > large_file_notice) {
+        warn("Large BVH cache (>512 MiB); writing continues.");
+    }
+    require(payload_size <= std::vector<uint8_t>{}.max_size() - cache_header_size, CS2TL_OUT_OF_MEMORY,
+            "Cache size cannot be represented by this process.");
     Writer payload;
     payload.data.reserve(static_cast<size_t>(payload_size) + cache_header_size);
     for (const auto &tri : scene.triangles) {

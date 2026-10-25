@@ -96,6 +96,10 @@ void copy_result(std::span<const T> values, T *buffer, uint32_t capacity, uint32
 uint32_t CS2TL_CALL cs2tl_get_abi_version(void) {
     return CS2TL_ABI_VERSION;
 }
+void CS2TL_CALL cs2tl_set_warning_callback(cs2tl_warning_callback callback, void *user) {
+    tl::warning_callback = callback;
+    tl::warning_user = user;
+}
 cs2tl_status CS2TL_CALL cs2tl_build_cache(const char *input, const char *output,
                                           const cs2tl_build_options *options, cs2tl_error *error) {
     return guarded(error, [&] {
@@ -138,7 +142,7 @@ cs2tl_status CS2TL_CALL cs2tl_create_scene(const cs2tl_triangle *triangles, uint
         *out = nullptr;
     }
     return guarded(error, [&] {
-        tl::require(out && (triangles || count == 0) && count <= tl::max_triangles, CS2TL_INVALID_ARGUMENT,
+        tl::require(out && (triangles || count == 0), CS2TL_INVALID_ARGUMENT,
                     "Invalid triangle input or scene output.");
         const auto config = build_options(options);
         std::vector<tl::Triangle> decoded;

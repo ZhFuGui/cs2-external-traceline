@@ -36,7 +36,7 @@ class Reader {
         return {x, y, z};
     }
 };
-void validate_tree(const Scene &scene) {
+void validate_tree(Scene &scene) {
     const auto count = static_cast<uint32_t>(scene.triangles.size());
     require(scene.order.size() == count, CS2TL_CORRUPT_CACHE, "Invalid BVH order count.");
     require((count == 0) == scene.nodes.empty(), CS2TL_CORRUPT_CACHE, "Invalid empty BVH.");
@@ -49,11 +49,13 @@ void validate_tree(const Scene &scene) {
         return;
     }
     std::vector<std::pair<uint32_t, uint32_t>> pending{{0, 0}};
+    uint32_t deepest = 0;
     while (!pending.empty()) {
         const auto [index, depth] = pending.back();
         pending.pop_back();
-        require(index < scene.nodes.size() && !seen_node[index] && depth <= bvh_max_depth,
-                CS2TL_CORRUPT_CACHE, "Invalid/cyclic/deep BVH node.");
+        require(index < scene.nodes.size() && !seen_node[index], CS2TL_CORRUPT_CACHE,
+                "Invalid/cyclic BVH node.");
+        deepest = std::max(deepest, depth);
         seen_node[index] = true;
         const auto &node = scene.nodes[index];
         require(node.bounds.lo.x <= node.bounds.hi.x && node.bounds.lo.y <= node.bounds.hi.y &&
@@ -81,6 +83,10 @@ void validate_tree(const Scene &scene) {
     require(std::all_of(seen_order.begin(), seen_order.end(), [](bool b) { return b; }) &&
                 std::all_of(seen_node.begin(), seen_node.end(), [](bool b) { return b; }),
             CS2TL_CORRUPT_CACHE, "Unreachable BVH nodes or triangles.");
+    if (deepest > bvh_max_depth) {
+        warn("Deep BVH cache (>48 levels); traversal continues with stack spill when needed.");
+    }
+    scene.deep_bvh = uint64_t(deepest) + 2 > traversal_stack_capacity;
 }
 } // namespace
 Scene load_cache(const std::filesystem::path &path) {
@@ -97,13 +103,12 @@ Scene load_cache(const std::filesystem::path &path) {
     const uint32_t triangles_count = reader.u32(), nodes_count = reader.u32(), order_count = reader.u32(),
                    hash_count = reader.u32();
     const uint64_t source = reader.u64(), payload_size = reader.u64(), checksum = reader.u64();
-    require((flags & ~(CS2TL_SCENE_APPROXIMATE | CS2TL_SCENE_HAS_OPEN_GEOMETRY)) == 0 && leaf_size >= 1 &&
-                leaf_size <= 64,
+    require((flags & ~(CS2TL_SCENE_APPROXIMATE | CS2TL_SCENE_HAS_OPEN_GEOMETRY)) == 0 && leaf_size >= 1,
             CS2TL_CORRUPT_CACHE, "Invalid cache flags/build options.", 16);
     const uint64_t expected = uint64_t(triangles_count) * 44 + uint64_t(nodes_count) * 40 +
                               uint64_t(order_count) * 4 + uint64_t(hash_count) * 4;
-    require(triangles_count <= max_triangles && nodes_count <= uint64_t(triangles_count) * 2 &&
-                order_count == triangles_count && hash_count <= 1'000'000 && expected == payload_size &&
+    require(nodes_count <= uint64_t(triangles_count) * 2 &&
+                order_count == triangles_count && uint64_t(hash_count) <= uint64_t(INT32_MAX) + 1 && expected == payload_size &&
                 payload_size == file.size() - cache_header_size,
             CS2TL_CORRUPT_CACHE, "Invalid cache counts/lengths.", 24);
     require(fingerprint(std::span(file).subspan(cache_header_size)) == checksum, CS2TL_CORRUPT_CACHE,
