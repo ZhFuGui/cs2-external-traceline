@@ -10,7 +10,31 @@ namespace cs2::traceline {
 struct Hit {
     double distance{};
     uint32_t triangle{}, kind{};
+    bool curved() const { return (kind & 0x80000000u) != 0; }
+    uint32_t type() const { return kind & 0x7fffffffu; }
 };
+template <bool Curved> inline uint32_t hit_solid_as(const Scene &scene, const Hit &hit) {
+    if constexpr (Curved) {
+        if (hit.curved()) {
+            return scene.primitives[hit.triangle].solid;
+        }
+    }
+    return scene.triangles[hit.triangle].solid;
+}
+template <bool Curved> inline int32_t hit_surface_as(const Scene &scene, const Hit &hit) {
+    if constexpr (Curved) {
+        if (hit.curved()) {
+            return scene.primitives[hit.triangle].surface;
+        }
+    }
+    return scene.triangles[hit.triangle].surface;
+}
+inline uint32_t hit_solid(const Scene &scene, const Hit &hit) {
+    return hit.curved() ? scene.primitives[hit.triangle].solid : scene.triangles[hit.triangle].solid;
+}
+inline int32_t hit_surface(const Scene &scene, const Hit &hit) {
+    return hit.curved() ? scene.primitives[hit.triangle].surface : scene.triangles[hit.triangle].surface;
+}
 struct QueryWorkspace {
     std::vector<Hit> raw_hits, hits;
     std::vector<uint32_t> candidates, inside;
@@ -76,6 +100,33 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
 std::vector<Hit> trace_all(const Scene &scene, const Ray &ray);
 std::optional<Hit> trace_closest(const Scene &scene, const Ray &ray);
 bool is_occluded(const Scene &scene, const Ray &ray);
-cs2tl_hit external_hit(const Scene &scene, const Ray &ray, const Hit &hit);
+cs2tl_hit external_curved_hit(const Scene &scene, const Ray &ray, const Hit &hit);
+template <bool Curved = true>
+#if defined(_MSC_VER) && defined(NDEBUG)
+__forceinline
+#else
+inline
+#endif
+    cs2tl_hit
+    external_hit(const Scene &scene, const Ray &ray, const Hit &hit) {
+    if constexpr (Curved) {
+        if (hit.curved()) [[unlikely]] {
+            return external_curved_hit(scene, ray, hit);
+        }
+    }
+    const auto &tri = scene.triangles[hit.triangle];
+    return {static_cast<float>(hit.distance),
+            static_cast<float>(hit.distance / ray.length),
+            ray.at(hit.distance).external(),
+            scene.triangle_normals[hit.triangle].external(),
+            tri.surface,
+            tri.object,
+            tri.solid,
+            tri.id,
+            hit.kind};
+}
+std::span<const Hit> trace_all_triangles_into(const Scene &scene, const Ray &ray, QueryWorkspace &workspace,
+                                              bool distance_order);
+
 std::vector<cs2tl_interval> query_intervals(const Scene &scene, const Ray &ray);
 } // namespace cs2::traceline

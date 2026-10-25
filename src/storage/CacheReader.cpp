@@ -87,6 +87,7 @@ void validate_tree(Scene &scene) {
         warn("Deep BVH cache (>48 levels); traversal continues with stack spill when needed.");
     }
     scene.deep_bvh = uint64_t(deepest) + 2 > traversal_stack_capacity;
+    scene.extended_queries = scene.deep_bvh || !scene.primitives.empty();
 }
 } // namespace
 Scene load_cache(const std::filesystem::path &path) {
@@ -97,21 +98,28 @@ Scene load_cache(const std::filesystem::path &path) {
     Reader reader(file);
     reader.position = 8;
     const uint32_t version = reader.u32(), header_size = reader.u32();
-    require(version == cache_version && header_size == cache_header_size, CS2TL_UNSUPPORTED_FORMAT,
-            "Unsupported cache version.", 8);
+    require((version == cache_version && header_size == cache_header_size) ||
+                (version == curved_cache_version && header_size == curved_cache_header_size),
+            CS2TL_UNSUPPORTED_FORMAT, "Unsupported cache version.", 8);
     const uint32_t flags = reader.u32(), leaf_size = reader.u32();
     const uint32_t triangles_count = reader.u32(), nodes_count = reader.u32(), order_count = reader.u32(),
                    hash_count = reader.u32();
     const uint64_t source = reader.u64(), payload_size = reader.u64(), checksum = reader.u64();
+    uint32_t primitive_count = 0;
+    if (version == curved_cache_version) {
+        primitive_count = reader.u32();
+        require(reader.u32() == 0, CS2TL_CORRUPT_CACHE, "Invalid cache reserved field.");
+    }
     require((flags & ~(CS2TL_SCENE_APPROXIMATE | CS2TL_SCENE_HAS_OPEN_GEOMETRY)) == 0 && leaf_size >= 1,
             CS2TL_CORRUPT_CACHE, "Invalid cache flags/build options.", 16);
     const uint64_t expected = uint64_t(triangles_count) * 44 + uint64_t(nodes_count) * 40 +
-                              uint64_t(order_count) * 4 + uint64_t(hash_count) * 4;
-    require(nodes_count <= uint64_t(triangles_count) * 2 &&
-                order_count == triangles_count && uint64_t(hash_count) <= uint64_t(INT32_MAX) + 1 && expected == payload_size &&
-                payload_size == file.size() - cache_header_size,
+                              uint64_t(order_count) * 4 + uint64_t(hash_count) * 4 +
+                              uint64_t(primitive_count) * 84;
+    require(nodes_count <= uint64_t(triangles_count) * 2 && order_count == triangles_count &&
+                uint64_t(hash_count) <= uint64_t(INT32_MAX) + 1 && expected == payload_size &&
+                file.size() >= header_size && payload_size == file.size() - header_size,
             CS2TL_CORRUPT_CACHE, "Invalid cache counts/lengths.", 24);
-    require(fingerprint(std::span(file).subspan(cache_header_size)) == checksum, CS2TL_CORRUPT_CACHE,
+    require(fingerprint(std::span(file).subspan(header_size)) == checksum, CS2TL_CORRUPT_CACHE,
             "Cache payload checksum mismatch.", 56);
     std::vector<Triangle> triangles;
     triangles.reserve(triangles_count);
@@ -124,9 +132,30 @@ Scene load_cache(const std::filesystem::path &path) {
         tri.object = reader.u32();
         triangles.push_back(tri);
     }
+    // Curved records follow the original v1 payload. Read them before building
+    // topology; the v1 triangle/node/order layout stays byte-compatible.
+    const size_t nodes_position = reader.position;
+    reader.position = header_size + uint64_t(triangles_count) * 44 + uint64_t(nodes_count) * 40 +
+                      uint64_t(order_count) * 4 + uint64_t(hash_count) * 4;
+    std::vector<Primitive> primitives;
+    primitives.reserve(primitive_count);
+    for (uint32_t i = 0; i < primitive_count; ++i) {
+        Primitive p;
+        p.a = reader.vector();
+        p.b = reader.vector();
+        p.radius = reader.f32();
+        p.surface = std::bit_cast<int32_t>(reader.u32());
+        p.object = reader.u32();
+        for (auto &x : p.pose) {
+            x = reader.f32();
+        }
+        primitives.push_back(p);
+    }
+    reader.position = nodes_position;
     Scene scene;
     try {
-        scene = build_scene(std::move(triangles), BuildOptions{0, leaf_size}, false, true);
+        scene =
+            build_scene(std::move(triangles), BuildOptions{0, leaf_size}, false, std::move(primitives), true);
     } catch (const Error &e) {
         throw Error(CS2TL_CORRUPT_CACHE, e.what(), reader.position);
     }
@@ -157,6 +186,10 @@ Scene load_cache(const std::filesystem::path &path) {
         for (const auto &tri : scene.triangles) {
             require(tri.surface < 0 || static_cast<uint32_t>(tri.surface) < hash_count, CS2TL_CORRUPT_CACHE,
                     "Invalid cached surface index.");
+        }
+        for (const auto &p : scene.primitives) {
+            require(p.surface < 0 || static_cast<uint32_t>(p.surface) < hash_count, CS2TL_CORRUPT_CACHE,
+                    "Invalid cached primitive surface index.");
         }
     }
     validate_tree(scene);

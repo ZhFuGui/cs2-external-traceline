@@ -1,6 +1,7 @@
 #include "Scene.h"
 #include "bvh/Bvh.h"
 #include "diagnostics/Error.h"
+#include "geometry/Intersection.h"
 #include <array>
 #include <bit>
 #include <limits>
@@ -66,7 +67,8 @@ uint32_t bits(double value) {
 }
 } // namespace
 
-Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool build_acceleration, bool preserve_orientation) {
+Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool build_acceleration,
+                  std::vector<Primitive> primitives, bool preserve_orientation) {
     require(triangles.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
             "Triangle indices exceed uint32 representation.");
     if (triangles.size() > large_triangle_notice) {
@@ -233,6 +235,21 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
         scene.query_triangles.push_back(
             {tri.a, e1, e2, 32 * std::numeric_limits<double>::epsilon() * e1.length() * e2.length()});
         scene.triangle_normals.push_back(tri.normal());
+    }
+    scene.primitives = std::move(primitives);
+    for (uint32_t i = 0; i < scene.primitives.size(); ++i) {
+        require(scene.solids.size() < UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
+                "Solid indices exceed uint32 representation.");
+        auto &primitive = scene.primitives[i];
+        prepare_primitive(primitive);
+        primitive.solid = static_cast<uint32_t>(scene.solids.size());
+        Solid solid;
+        solid.object = primitive.object;
+        solid.closed = true;
+        solid.bounds = primitive.bounds;
+        solid.diagonal = (solid.bounds.hi - solid.bounds.lo).length();
+        solid.point_root = i; // Empty triangle lists identify analytic solids.
+        scene.solids.push_back(std::move(solid));
     }
     if (build_acceleration) {
         build_bvh(scene);

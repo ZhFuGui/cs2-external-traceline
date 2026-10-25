@@ -4,7 +4,8 @@
 #include <algorithm>
 
 namespace cs2::traceline {
-std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const Ray &ray,
+template <bool Curved>
+std::span<const cs2tl_interval> query_intervals_impl(const Scene &scene, const Ray &ray,
                                                      QueryWorkspace &workspace) {
     require((scene.flags & CS2TL_SCENE_APPROXIMATE) == 0, CS2TL_INCOMPLETE_GEOMETRY,
             "Exact thickness is unavailable for a scene containing approximated hulls.");
@@ -44,20 +45,21 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
         require(scene.solids[id].container == CS2TL_INVALID_ID, CS2TL_INCOMPLETE_GEOMETRY,
                 "Nested shells of one source object require explicit solid/cavity decomposition.");
     }
-    auto hits = trace_all_into(scene, ray, workspace, false);
+    auto hits = Curved ? trace_all_into(scene, ray, workspace, false)
+                       : trace_all_triangles_into(scene, ray, workspace, false);
     size_t cursor = 0;
     for (uint32_t id : candidates) {
         const auto &solid = scene.solids[id];
-        while (cursor < hits.size() && scene.triangles[hits[cursor].triangle].solid < id) {
+        while (cursor < hits.size() && hit_solid_as<Curved>(scene, hits[cursor]) < id) {
             ++cursor;
         }
         const size_t first_event = cursor;
-        while (cursor < hits.size() && scene.triangles[hits[cursor].triangle].solid == id) {
+        while (cursor < hits.size() && hit_solid_as<Curved>(scene, hits[cursor]) == id) {
             ++cursor;
         }
         const auto events = hits.subspan(first_event, cursor - first_event);
         const double first = events.empty() ? ray.high : events.front().distance;
-        bool inside = contains(scene, solid, ray.at(ray.low + (first - ray.low) * 0.5));
+        bool inside = contains_as<Curved>(scene, solid, ray.at(ray.low + (first - ray.low) * 0.5));
         double entry = ray.low;
         int32_t entry_surface = CS2TL_UNKNOWN_SURFACE;
         uint32_t flags = inside ? CS2TL_INTERVAL_START_INSIDE : 0u;
@@ -67,7 +69,7 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
             }
             // A ray sliding exactly along a face/edge contacts its end faces,
             // but traverses no interior volume. Do not invent wall thickness.
-            if (!contains(scene, solid, ray.at(entry + (exit - entry) * 0.5))) {
+            if (!contains_as<Curved>(scene, solid, ray.at(entry + (exit - entry) * 0.5))) {
                 return;
             }
             result.push_back({static_cast<float>(entry), static_cast<float>(exit),
@@ -75,11 +77,12 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
                               ray.at(exit).external(), entry_surface, exit_surface, solid.object, id});
         };
         for (const auto &event : events) {
-            if (event.kind == CS2TL_HIT_TANGENT) {
+            const uint32_t kind = Curved ? event.type() : event.kind;
+            if (kind == CS2TL_HIT_TANGENT) {
                 continue;
             }
-            const auto surface = scene.triangles[event.triangle].surface;
-            if (event.kind == CS2TL_HIT_ENTER) {
+            const auto surface = hit_surface_as<Curved>(scene, event);
+            if (kind == CS2TL_HIT_ENTER) {
                 require(!inside, CS2TL_INCOMPLETE_GEOMETRY,
                         "Inconsistent entry/exit topology; decrease merge tolerance or inspect geometry.");
                 inside = true;
@@ -102,6 +105,11 @@ std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const R
                                                     : a.solid_id < b.solid_id;
     });
     return result;
+}
+std::span<const cs2tl_interval> query_intervals_into(const Scene &scene, const Ray &ray,
+                                                     QueryWorkspace &workspace) {
+    return !scene.extended_queries ? query_intervals_impl<false>(scene, ray, workspace)
+                                   : query_intervals_impl<true>(scene, ray, workspace);
 }
 std::vector<cs2tl_interval> query_intervals(const Scene &scene, const Ray &ray) {
     QueryWorkspace workspace;

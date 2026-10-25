@@ -52,6 +52,16 @@ uint32_t build_index(std::vector<IndexNode> &nodes, std::vector<uint32_t> &order
 }
 } // namespace
 void build_query_indices(Scene &scene) {
+    scene.extended_queries = !scene.primitives.empty() || scene.deep_bvh;
+    scene.primitive_nodes.clear();
+    scene.primitive_order.resize(scene.primitives.size());
+    if (!scene.primitives.empty()) {
+        std::iota(scene.primitive_order.begin(), scene.primitive_order.end(), 0u);
+        const auto size = static_cast<uint32_t>(scene.primitives.size());
+        scene.primitive_nodes.reserve(static_cast<size_t>(node_count(size, 4)));
+        build_index(scene.primitive_nodes, scene.primitive_order, 0, size, 4,
+                    [&](uint32_t id) { return scene.primitives[id].bounds; });
+    }
     const uint32_t count = static_cast<uint32_t>(scene.solids.size());
     scene.solid_nodes.clear();
     scene.solid_order.resize(count);
@@ -88,7 +98,9 @@ void build_query_indices(Scene &scene) {
             auto &solid = scene.solids[scene.object_order[i]];
             solid.group = group;
             solid.container = CS2TL_INVALID_ID;
-            solid.point_root = CS2TL_INVALID_ID;
+            if (!solid.triangles.empty()) {
+                solid.point_root = CS2TL_INVALID_ID;
+            }
             if (solid.closed && solid.triangles.size() > small_solid_limit &&
                 solid.triangles.size() != scene.triangles.size()) {
                 point_nodes += node_count(static_cast<uint32_t>(solid.triangles.size()), 8);

@@ -238,8 +238,14 @@ cs2tl_status CS2TL_CALL cs2tl_trace_all(const cs2tl_scene *scene, const cs2tl_se
         }
         tl::require(capacity >= hits.size(), CS2TL_BUFFER_TOO_SMALL,
                     "Result buffer is too small; required count was returned.");
-        for (size_t i = 0; i < hits.size(); ++i) {
-            buffer[i] = tl::external_hit(data, query, hits[i]);
+        if (data.primitives.empty()) {
+            for (size_t i = 0; i < hits.size(); ++i) {
+                buffer[i] = tl::external_hit<false>(data, query, hits[i]);
+            }
+        } else {
+            for (size_t i = 0; i < hits.size(); ++i) {
+                buffer[i] = tl::external_hit(data, query, hits[i]);
+            }
         }
     });
 }
@@ -268,8 +274,14 @@ cs2tl_status CS2TL_CALL cs2tl_trace_all_to(const cs2tl_scene *scene, const cs2tl
         const auto hits = tl::trace_all_into(data, query, lease.get());
         auto *buffer = allocate(static_cast<uint32_t>(hits.size()), user);
         tl::require(buffer || hits.empty(), CS2TL_OUT_OF_MEMORY, "Result allocation failed.");
-        for (size_t i = 0; i < hits.size(); ++i) {
-            buffer[i] = tl::external_hit(data, query, hits[i]);
+        if (data.primitives.empty()) {
+            for (size_t i = 0; i < hits.size(); ++i) {
+                buffer[i] = tl::external_hit<false>(data, query, hits[i]);
+            }
+        } else {
+            for (size_t i = 0; i < hits.size(); ++i) {
+                buffer[i] = tl::external_hit(data, query, hits[i]);
+            }
         }
     });
 }

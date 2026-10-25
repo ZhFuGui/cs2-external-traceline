@@ -3,7 +3,9 @@
 #include "storage/FileIO.h"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
+#include <unordered_map>
 
 namespace cs2::traceline {
 namespace {
@@ -58,6 +60,7 @@ Transform transform(const Value &value) {
 class Importer {
     BuildOptions options;
     std::vector<Triangle> triangles;
+    std::vector<Primitive> primitives;
     std::vector<uint32_t> hashes;
     uint32_t next_object{};
     bool approximate{}, found_shapes{};
@@ -131,6 +134,35 @@ class Importer {
             }
         }
     }
+    void curved(const Value &array, bool sphere, const Value *attributes, const Transform &pose) {
+        found_shapes = true;
+        require(array.kind == Kind::array, CS2TL_PARSE_ERROR, "Shapes must be an array.", array.offset);
+        for (const auto &descriptor : array.children) {
+            require(next_object != CS2TL_INVALID_ID, CS2TL_UNSUPPORTED_FORMAT,
+                    "Object indices exceed uint32 representation.");
+            const auto object = next_object++;
+            if (!accept(descriptor, attributes)) {
+                continue;
+            }
+            const auto &shape = descriptor.need(sphere ? "m_Sphere" : "m_Capsule");
+            const auto points = text::vertices(shape.need("m_vCenter"));
+            require(points.size() == (sphere ? 1u : 2u), CS2TL_INVALID_GEOMETRY,
+                    "Invalid sphere/capsule center count.", shape.offset);
+            Primitive primitive;
+            primitive.a = points[0];
+            primitive.b = sphere ? points[0] : points[1];
+            primitive.radius = text::number(shape.need("m_flRadius"));
+            primitive.object = object;
+            primitive.pose = pose.m;
+            if (const auto *surface = descriptor.get("m_nSurfacePropertyIndex")) {
+                const auto value = text::integer(*surface);
+                require(value >= -1 && value <= INT32_MAX, CS2TL_INVALID_GEOMETRY,
+                        "Invalid primitive surface index.", surface->offset);
+                primitive.surface = static_cast<int32_t>(value);
+            }
+            primitives.push_back(primitive);
+        }
+    }
 
   public:
     explicit Importer(BuildOptions value) : options(value) {}
@@ -199,11 +231,13 @@ class Importer {
                 shapes(value, false, frame.attributes, frame.pose);
             } else if (key == "m_hulls") {
                 shapes(value, true, frame.attributes, frame.pose);
-            } else if (key == "m_spheres" || key == "m_capsules" || key == "m_compounds") {
-                require_lazy(value.kind == Kind::array, CS2TL_PARSE_ERROR,
-                             [&] { return "Shape field must be an array: " + key; }, value.offset);
-                require_lazy(value.children.empty(), CS2TL_UNSUPPORTED_FORMAT,
-                             [&] { return "Unsupported collision shape array: " + key; }, value.offset);
+            } else if (key == "m_spheres" || key == "m_capsules") {
+                curved(value, key == "m_spheres", frame.attributes, frame.pose);
+            } else if (key == "m_compounds") {
+                require(value.kind == Kind::array, CS2TL_PARSE_ERROR, "Compound shapes must be an array.",
+                        value.offset);
+                require(value.children.empty(), CS2TL_UNSUPPORTED_FORMAT,
+                        "Unsupported collision shape array: m_compounds", value.offset);
             } else if (key == "m_parts") {
                 const auto *bind = node.get("m_bindPose");
                 require(value.kind == Kind::array, CS2TL_PARSE_ERROR, "Parts must be an array.",
@@ -224,8 +258,13 @@ class Importer {
                 require(t.surface < 0 || static_cast<size_t>(t.surface) < hashes.size(),
                         CS2TL_INVALID_GEOMETRY, "Surface identifier exceeds surface property table.");
             }
+            for (const auto &p : primitives) {
+                require(p.surface < 0 || static_cast<size_t>(p.surface) < hashes.size(),
+                        CS2TL_INVALID_GEOMETRY,
+                        "Primitive surface identifier exceeds surface property table.");
+            }
         }
-        auto scene = build_scene(std::move(triangles), options);
+        auto scene = build_scene(std::move(triangles), options, true, std::move(primitives));
         scene.surface_hashes = std::move(hashes);
         if (approximate) {
             scene.flags |= CS2TL_SCENE_APPROXIMATE;

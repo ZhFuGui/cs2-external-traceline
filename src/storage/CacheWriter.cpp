@@ -26,19 +26,23 @@ class Writer {
 };
 } // namespace
 void save_cache(const Scene &scene, const std::filesystem::path &path) {
+    const bool curved = !scene.primitives.empty();
+    const uint32_t header_size = curved ? curved_cache_header_size : cache_header_size;
+    require(scene.triangles.size() <= UINT32_MAX && scene.nodes.size() <= UINT32_MAX &&
+                scene.order.size() <= UINT32_MAX && scene.surface_hashes.size() <= UINT32_MAX &&
+                scene.primitives.size() <= UINT32_MAX,
+            CS2TL_UNSUPPORTED_FORMAT, "Cache counts exceed uint32 representation.");
     const uint64_t payload_size = uint64_t(scene.triangles.size()) * 44 + uint64_t(scene.nodes.size()) * 40 +
                                   uint64_t(scene.order.size()) * 4 +
-                                  uint64_t(scene.surface_hashes.size()) * 4;
-    require(scene.triangles.size() <= UINT32_MAX && scene.nodes.size() <= UINT32_MAX &&
-                scene.order.size() <= UINT32_MAX && scene.surface_hashes.size() <= UINT32_MAX,
-            CS2TL_UNSUPPORTED_FORMAT, "Cache counts exceed uint32 representation.");
-    if (payload_size + cache_header_size > large_file_notice) {
+                                  uint64_t(scene.surface_hashes.size()) * 4 +
+                                  uint64_t(scene.primitives.size()) * 84;
+    if (payload_size + header_size > large_file_notice) {
         warn("Large BVH cache (>512 MiB); writing continues.");
     }
-    require(payload_size <= std::vector<uint8_t>{}.max_size() - cache_header_size, CS2TL_OUT_OF_MEMORY,
+    require(payload_size <= std::vector<uint8_t>{}.max_size() - header_size, CS2TL_OUT_OF_MEMORY,
             "Cache size cannot be represented by this process.");
     Writer payload;
-    payload.data.reserve(static_cast<size_t>(payload_size) + cache_header_size);
+    payload.data.reserve(static_cast<size_t>(payload_size) + header_size);
     for (const auto &tri : scene.triangles) {
         payload.vector(tri.a);
         payload.vector(tri.b);
@@ -60,12 +64,22 @@ void save_cache(const Scene &scene, const std::filesystem::path &path) {
     for (auto value : scene.surface_hashes) {
         payload.u32(value);
     }
+    for (const auto &p : scene.primitives) {
+        payload.vector(p.a);
+        payload.vector(p.b);
+        payload.f32(p.radius);
+        payload.u32(std::bit_cast<uint32_t>(p.surface));
+        payload.u32(p.object);
+        for (auto x : p.pose) {
+            payload.f32(x);
+        }
+    }
     Writer file;
     for (char c : std::string_view("CS2TLBVH")) {
         file.data.push_back(static_cast<uint8_t>(c));
     }
-    file.u32(cache_version);
-    file.u32(cache_header_size);
+    file.u32(curved ? curved_cache_version : cache_version);
+    file.u32(header_size);
     file.u32(scene.flags);
     file.u32(scene.leaf_size);
     file.u32(static_cast<uint32_t>(scene.triangles.size()));
@@ -75,6 +89,10 @@ void save_cache(const Scene &scene, const std::filesystem::path &path) {
     file.u64(scene.fingerprint);
     file.u64(payload.data.size());
     file.u64(fingerprint(payload.data));
+    if (curved) {
+        file.u32(static_cast<uint32_t>(scene.primitives.size()));
+        file.u32(0);
+    }
     payload.data.insert(payload.data.begin(), file.data.begin(), file.data.end());
     atomic_write(path, payload.data);
 }

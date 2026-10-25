@@ -1,5 +1,6 @@
 #pragma once
 #include "geometry/Aabb.h"
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -29,6 +30,17 @@ struct Solid {
     uint32_t container{CS2TL_INVALID_ID};
     uint32_t point_root{CS2TL_INVALID_ID};
     double diagonal{};
+};
+// An affine image of a capsule. Equal endpoints encode a sphere. Curved
+// surfaces stay analytic: tessellation would alter visibility and thickness.
+struct Primitive {
+    Vec3 a, b;
+    double radius{};
+    int32_t surface{-1};
+    uint32_t object{}, solid{};
+    std::array<double, 12> pose{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+    std::array<double, 12> inverse{};
+    Aabb bounds;
 };
 // Query-only data is prepared after quantization and winding repair. Keeping it
 // separate avoids fetching topology/source vertices for each intersection.
@@ -72,7 +84,12 @@ struct Scene {
     std::vector<uint32_t> point_order;
     std::vector<TriangleQuery> query_triangles;
     std::vector<Vec3> triangle_normals;
-    bool deep_bvh{};
+    std::vector<Primitive> primitives;
+    std::vector<IndexNode> primitive_nodes;
+    std::vector<uint32_t> primitive_order;
+    bool deep_bvh{}; // Unusually deep external caches use traversal stack spill.
+    bool extended_queries{};
 };
-Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true, bool preserve_orientation = false);
+Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true,
+                  std::vector<Primitive> primitives = {}, bool preserve_orientation = false);
 } // namespace cs2::traceline

@@ -75,7 +75,7 @@ typedef struct cs2tl_hit {
     int32_t surface_id;
     uint32_t object_id;
     uint32_t solid_id;
-    uint32_t triangle_id;
+    uint32_t triangle_id; /* CS2TL_INVALID_ID for analytic sphere/capsule hits. */
     uint32_t kind;
 } cs2tl_hit;
 

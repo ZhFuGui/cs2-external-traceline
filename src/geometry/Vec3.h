@@ -10,6 +10,7 @@ struct Vec3 {
     Vec3(double a, double b, double c) : x(a), y(b), z(c) {}
     explicit Vec3(cs2tl_vec3 value) : x(value.x), y(value.y), z(value.z) {}
     double operator[](unsigned i) const { return i == 0 ? x : (i == 1 ? y : z); }
+    double &operator[](unsigned i) { return i == 0 ? x : (i == 1 ? y : z); }
     Vec3 operator+(Vec3 b) const { return {x + b.x, y + b.y, z + b.z}; }
     Vec3 operator-(Vec3 b) const { return {x - b.x, y - b.y, z - b.z}; }
     Vec3 operator*(double s) const { return {x * s, y * s, z * s}; }
