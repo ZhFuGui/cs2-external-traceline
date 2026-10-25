@@ -19,7 +19,8 @@ const Value *Value::get(std::string_view key) const {
 }
 const Value &Value::need(std::string_view key) const {
     const auto *value = get(key);
-    require(value != nullptr, CS2TL_PARSE_ERROR, "Missing field: " + std::string(key), offset);
+    require_lazy(
+        value != nullptr, CS2TL_PARSE_ERROR, [&] { return "Missing field: " + std::string(key); }, offset);
     return *value;
 }
 namespace {

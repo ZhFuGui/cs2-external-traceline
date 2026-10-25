@@ -139,10 +139,12 @@ class Importer {
             } else if (key == "m_hulls") {
                 shapes(value, true, attributes, pose);
             } else if (key == "m_spheres" || key == "m_capsules" || key == "m_compounds") {
-                require(value.kind == Kind::array, CS2TL_PARSE_ERROR, "Shape field must be an array: " + key,
-                        value.offset);
-                require(value.children.empty(), CS2TL_UNSUPPORTED_FORMAT,
-                        "Unsupported collision shape array: " + key, value.offset);
+                require_lazy(
+                    value.kind == Kind::array, CS2TL_PARSE_ERROR,
+                    [&] { return "Shape field must be an array: " + key; }, value.offset);
+                require_lazy(
+                    value.children.empty(), CS2TL_UNSUPPORTED_FORMAT,
+                    [&] { return "Unsupported collision shape array: " + key; }, value.offset);
             } else if (key == "m_parts") {
                 require(value.kind == Kind::array, CS2TL_PARSE_ERROR, "Parts must be an array.",
                         value.offset);
