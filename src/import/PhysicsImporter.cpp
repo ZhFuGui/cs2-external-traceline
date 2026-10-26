@@ -1,6 +1,7 @@
 #include "PhysicsTextReader.h"
 #include "diagnostics/Error.h"
 #include "storage/FileIO.h"
+#include "storage/PhysicsMetadata.h"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -57,6 +58,44 @@ Transform transform(const Value &value) {
     std::copy_n(values.begin(), 12, out.m.begin());
     return out;
 }
+uint32_t source_u32(const Value &value) {
+    const auto number = text::integer(value);
+    require(number >= 0 && number <= UINT32_MAX, CS2TL_INVALID_GEOMETRY,
+            "Source collision value exceeds uint32 representation.", value.offset);
+    return static_cast<uint32_t>(number);
+}
+cs2tl_vec3 source_vector(const Value &value) {
+    if (value.kind == Kind::object) {
+        return {static_cast<float>(text::number(value.need("x"))),
+                static_cast<float>(text::number(value.need("y"))),
+                static_cast<float>(text::number(value.need("z")))};
+    }
+    const auto points = text::vertices(value);
+    require(points.size() == 1, CS2TL_INVALID_GEOMETRY, "Source bounds require one vector.", value.offset);
+    return points[0].external();
+}
+std::vector<PhysicsPlane> source_planes(const Value &value) {
+    std::vector<float> coordinates;
+    if (value.kind == Kind::blob) {
+        for (const auto bits : text::uints(value)) {
+            coordinates.push_back(std::bit_cast<float>(bits));
+        }
+    } else {
+        std::vector<double> numbers;
+        flatten(value, numbers);
+        for (const auto number : numbers) {
+            coordinates.push_back(static_cast<float>(number));
+        }
+    }
+    require(coordinates.size() % 4 == 0, CS2TL_INVALID_GEOMETRY,
+            "Source hull planes must contain four float32 values per plane.", value.offset);
+    std::vector<PhysicsPlane> result;
+    result.reserve(coordinates.size() / 4);
+    for (size_t i = 0; i < coordinates.size(); i += 4) {
+        result.push_back({{coordinates[i], coordinates[i + 1], coordinates[i + 2]}, coordinates[i + 3]});
+    }
+    return result;
+}
 class Importer {
     BuildOptions options;
     std::vector<Triangle> triangles;
@@ -65,9 +104,73 @@ class Importer {
     std::vector<uint32_t> hashes;
     std::vector<uint32_t> merged_hashes;
     std::unordered_map<uint32_t, int32_t> merged_indices;
+    PhysicsData physics;
+    std::unordered_map<const Value *, uint32_t> attribute_ids;
     bool multiple{};
     uint32_t next_object{};
     bool approximate{}, found_shapes{};
+    uint32_t attribute_id(const Value &descriptor, const Value *attributes) {
+        if (!attributes) {
+            return CS2TL_INVALID_ID;
+        }
+        require(attributes->kind == Kind::array, CS2TL_PARSE_ERROR, "Collision attributes must be an array.",
+                attributes->offset);
+        const auto &index = descriptor.need("m_nCollisionAttributeIndex");
+        const auto number = text::integer(index);
+        require(number >= 0 && static_cast<uint64_t>(number) < attributes->children.size(),
+                CS2TL_INVALID_GEOMETRY, "Collision attribute index out of range.", index.offset);
+        const auto *value = &attributes->children[static_cast<size_t>(number)];
+        if (const auto found = attribute_ids.find(value); found != attribute_ids.end()) {
+            return found->second;
+        }
+        PhysicsAttribute attribute;
+        bool complete = true;
+        auto scalar = [&](std::string_view name) {
+            if (const auto *field = value->get(name)) {
+                return source_u32(*field);
+            }
+            complete = false;
+            return 0u;
+        };
+        auto list = [&](std::string_view name) {
+            if (const auto *field = value->get(name)) {
+                return text::uints(*field);
+            }
+            complete = false;
+            return std::vector<uint32_t>{};
+        };
+        attribute.group_hash = scalar("m_CollisionGroup");
+        attribute.include_detail_count = scalar("m_nIncludeDetailLayerCount");
+        attribute.interact_as = list("m_InteractAs");
+        attribute.interact_with = list("m_InteractWith");
+        attribute.exclude = list("m_InteractExclude");
+        attribute.detail_layers = list("m_DetailLayers");
+        attribute.flags = complete ? physics_attribute_complete : 0;
+        require(physics.attributes.size() < CS2TL_INVALID_ID, CS2TL_UNSUPPORTED_FORMAT,
+                "Collision attribute indices exceed uint32 representation.");
+        const auto result = static_cast<uint32_t>(physics.attributes.size());
+        physics.attributes.push_back(std::move(attribute));
+        attribute_ids.emplace(value, result);
+        return result;
+    }
+    PhysicsCollider collider(const Value &descriptor, const Value *attributes, const Transform &pose,
+                             PhysicsShape shape, uint32_t object, bool cover) {
+        PhysicsCollider result;
+        result.shape = shape;
+        result.object = object;
+        result.attribute = attribute_id(descriptor, attributes);
+        result.flags = cover ? physics_legacy_cover : 0;
+        for (size_t i = 0; i < pose.m.size(); ++i) {
+            result.pose[i] = static_cast<float>(pose.m[i]);
+        }
+        if (const auto *surface = descriptor.get("m_nSurfacePropertyIndex")) {
+            const auto number = text::integer(*surface);
+            require(number >= -1 && number <= INT32_MAX, CS2TL_INVALID_GEOMETRY,
+                    "Invalid source collider surface index.", surface->offset);
+            result.surface = static_cast<int32_t>(number);
+        }
+        return result;
+    }
     bool accept(const Value &descriptor, const Value *attributes) const {
         if ((options.flags & CS2TL_BUILD_ALL_COLLISION_GROUPS) != 0 || !attributes) {
             return true;
@@ -121,13 +224,49 @@ class Importer {
         for (const auto &descriptor : array.children) {
             require(next_object != CS2TL_INVALID_ID, CS2TL_INVALID_GEOMETRY, "Too many objects.");
             const uint32_t object = next_object++;
-            if (!accept(descriptor, attributes)) {
+            const bool cover = accept(descriptor, attributes);
+            auto original = collider(descriptor, attributes, pose,
+                                     hull ? PhysicsShape::hull : PhysicsShape::mesh, object, cover);
+            bool local_approximate = false;
+            auto decoded = hull ? text::decode_hull(descriptor, object,
+                                                    (options.flags & CS2TL_BUILD_APPROXIMATE_HULLS) != 0,
+                                                    local_approximate)
+                                : text::decode_mesh(descriptor, object);
+            const auto &shape = descriptor.need(hull ? "m_Hull" : "m_Mesh");
+            if (const auto *flags = shape.get("m_nFlags")) {
+                original.resource_flags = source_u32(*flags);
+            }
+            if (hull) {
+                if (const auto *planes = shape.get("m_Planes")) {
+                    original.planes = source_planes(*planes);
+                }
+                if (const auto *bounds = shape.get("m_Bounds")) {
+                    original.bounds_min = source_vector(bounds->need("m_vMinBounds"));
+                    original.bounds_max = source_vector(bounds->need("m_vMaxBounds"));
+                    original.flags |= physics_bounds_available;
+                }
+            } else {
+                const auto *low = shape.get("m_vMin"), *high = shape.get("m_vMax");
+                if (low && high) {
+                    original.bounds_min = source_vector(*low);
+                    original.bounds_max = source_vector(*high);
+                    original.flags |= physics_bounds_available;
+                }
+                if (const auto *nodes = shape.get("m_Nodes"); nodes && nodes->kind == Kind::blob) {
+                    original.mesh_nodes = text::bytes(*nodes);
+                }
+            }
+            original.triangles.reserve(decoded.size());
+            for (const auto &triangle : decoded) {
+                original.triangles.push_back(
+                    {triangle.a.external(), triangle.b.external(), triangle.c.external(), triangle.surface});
+            }
+            original.flags |= local_approximate ? physics_approximate : 0;
+            physics.colliders.push_back(std::move(original));
+            if (!cover) {
                 continue;
             }
-            auto decoded =
-                hull ? text::decode_hull(descriptor, object,
-                                         (options.flags & CS2TL_BUILD_APPROXIMATE_HULLS) != 0, approximate)
-                     : text::decode_mesh(descriptor, object);
+            approximate |= local_approximate;
             require(triangles.size() + decoded.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
                     "Scene indices exceed uint32 representation.", descriptor.offset);
             if (!hull && !decoded.empty()) {
@@ -148,9 +287,9 @@ class Importer {
             require(next_object != CS2TL_INVALID_ID, CS2TL_UNSUPPORTED_FORMAT,
                     "Object indices exceed uint32 representation.");
             const auto object = next_object++;
-            if (!accept(descriptor, attributes)) {
-                continue;
-            }
+            const bool cover = accept(descriptor, attributes);
+            auto original = collider(descriptor, attributes, pose,
+                                     sphere ? PhysicsShape::sphere : PhysicsShape::capsule, object, cover);
             const auto &shape = descriptor.need(sphere ? "m_Sphere" : "m_Capsule");
             const auto points = text::vertices(shape.need("m_vCenter"));
             require(points.size() == (sphere ? 1u : 2u), CS2TL_INVALID_GEOMETRY,
@@ -167,7 +306,13 @@ class Importer {
                         "Invalid primitive surface index.", surface->offset);
                 primitive.surface = static_cast<int32_t>(value);
             }
-            primitives.push_back(primitive);
+            original.a = primitive.a.external();
+            original.b = primitive.b.external();
+            original.radius = static_cast<float>(primitive.radius);
+            physics.colliders.push_back(std::move(original));
+            if (cover) {
+                primitives.push_back(primitive);
+            }
         }
     }
 
@@ -176,7 +321,9 @@ class Importer {
     void append(const Value &root, const Transform &pose) {
         multiple = true;
         hashes.clear();
+        attribute_ids.clear(); // Each source tree has its own pointer lifetime.
         const auto first_triangle = triangles.size(), first_primitive = primitives.size();
+        const auto first_collider = physics.colliders.size();
         walk(root, nullptr, pose);
         std::vector<int32_t> remap;
         remap.reserve(hashes.size());
@@ -209,6 +356,12 @@ class Importer {
         }
         for (size_t i = first_primitive; i < primitives.size(); ++i) {
             surface(primitives[i].surface);
+        }
+        for (size_t i = first_collider; i < physics.colliders.size(); ++i) {
+            surface(physics.colliders[i].surface);
+            for (auto &triangle : physics.colliders[i].triangles) {
+                surface(triangle.surface);
+            }
         }
         if (missing) {
             warn("A source has no surface hashes; its material remains unknown.", root.offset);
@@ -319,6 +472,21 @@ class Importer {
         auto scene = build_scene(std::move(triangles), options, true, std::move(primitives), false,
                                  std::move(native_surface_objects), std::move(source_winding_flips));
         scene.surface_hashes = std::move(hashes);
+        validate_physics_metadata(physics);
+        if (!scene.surface_hashes.empty()) {
+            for (const auto &original : physics.colliders) {
+                auto valid_surface = [&](int32_t surface) {
+                    return surface < 0 || static_cast<size_t>(surface) < scene.surface_hashes.size();
+                };
+                require(valid_surface(original.surface), CS2TL_INVALID_GEOMETRY,
+                        "Source collider surface exceeds the property table.");
+                for (const auto &triangle : original.triangles) {
+                    require(valid_surface(triangle.surface), CS2TL_INVALID_GEOMETRY,
+                            "Source triangle surface exceeds the property table.");
+                }
+            }
+        }
+        scene.physics = std::move(physics);
         if (approximate) {
             scene.flags |= CS2TL_SCENE_APPROXIMATE;
         }

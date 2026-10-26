@@ -1,4 +1,5 @@
 #include "cs2-external-traceline/api.h"
+#include "ballistics/NativeStaticWorld.h"
 #include "ballistics/ShotSimulator.h"
 #include "ballistics/TargetDamage.h"
 #include "diagnostics/Error.h"
@@ -12,14 +13,38 @@
 #include <atomic>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <new>
 
 namespace tl = cs2::traceline;
+namespace {
+uint64_t ballistics_identity() noexcept {
+    // Saturation disables reuse rather than wrapping to a live context's id.
+    static std::atomic<uint64_t> next{1};
+    auto value = next.load(std::memory_order_relaxed);
+    while (value) {
+        const auto following = value == UINT64_MAX ? 0 : value + 1;
+        if (next.compare_exchange_weak(value, following, std::memory_order_relaxed)) {
+            return value;
+        }
+    }
+    return 0;
+}
+} // namespace
 struct cs2tl_scene {
     tl::Scene data;
     mutable tl::QueryWorkspacePool workspaces;
     mutable std::atomic<uint64_t> references{1};
+    mutable std::once_flag native_once;
+    mutable std::unique_ptr<tl::NativeStaticWorld> native_world;
     explicit cs2tl_scene(tl::Scene value) : data(std::move(value)) {}
+    const tl::NativeStaticWorld *native_static_world() const {
+        if (data.physics.colliders.empty()) {
+            return nullptr;
+        }
+        std::call_once(native_once, [&] { native_world = tl::build_native_static_world(data); });
+        return native_world.get();
+    }
 };
 struct cs2tl_profiles {
     std::shared_ptr<const tl::BallisticsProfiles> data;
@@ -29,6 +54,8 @@ struct cs2tl_ballistics {
     std::shared_ptr<const tl::BallisticsProfiles> profiles;
     std::vector<tl::ResolvedMaterial> materials;
     cs2tl_ballistics_info info{};
+    const tl::NativeStaticWorld *native_world{};
+    uint64_t identity{ballistics_identity()};
     ~cs2tl_ballistics() { cs2tl_destroy_scene(const_cast<cs2tl_scene *>(scene)); }
 };
 namespace {
@@ -391,7 +418,7 @@ cs2tl_status CS2TL_CALL cs2tl_simulate_shot(const cs2tl_scene *scene, const cs2t
         sized(request);
         sized(result);
         tl::QueryLease lease(scene->workspaces);
-        tl::simulate_shot(data, *request, *result, lease.get());
+        tl::simulate_shot(data, *request, *result, lease.get(), scene->native_static_world());
     });
 }
 namespace {
@@ -499,12 +526,19 @@ cs2tl_status CS2TL_CALL cs2tl_create_ballistics(const cs2tl_scene *scene, const 
         scene->references.fetch_add(1, std::memory_order_relaxed);
         context->scene = scene;
         context->profiles = profiles->data;
+        context->native_world = scene->native_static_world();
         auto &info = context->info;
         info.struct_size = sizeof(info);
         info.scene_fingerprint = geometry.fingerprint;
         info.scene_surface_count = static_cast<uint32_t>(geometry.surface_hashes.size());
         info.flags = CS2TL_PREDICTION_STATIC_SCENE | CS2TL_PREDICTION_NOT_LIVE_VALIDATED |
                      CS2TL_PREDICTION_INTERACTION_FLAGS_UNAVAILABLE;
+        if (context->native_world) {
+            info.flags |= CS2TL_PREDICTION_NATIVE_STATIC_EVENTS;
+            if (context->native_world->complete_attributes) {
+                info.flags &= ~CS2TL_PREDICTION_INTERACTION_FLAGS_UNAVAILABLE;
+            }
+        }
         if (data.info.steam_build_id == tl::audited_steam_build &&
             (data.info.flags & CS2TL_PROFILES_BUILD_MISMATCH) == 0) {
             info.flags |= CS2TL_PREDICTION_BINARY_RULES_AUDITED;
@@ -559,8 +593,8 @@ cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(const cs2tl_ballistics 
         const auto &weapon = data.profiles->weapon(request->weapon_id, request->fire_mode).profile;
         const auto query = ray(&request->segment);
         tl::QueryLease lease(data.scene->workspaces);
-        tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}}, lease.get(),
-                                      *out);
+        tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}, data.identity},
+                                      lease.get(), *out, data.native_world);
         out->flags = data.info.flags;
     });
 }
@@ -629,8 +663,8 @@ cs2tl_status CS2TL_CALL cs2tl_calculate_shot_damage(const cs2tl_ballistics *cont
         computed.struct_size = out->struct_size;
         tl::reset_shot_damage(computed);
         tl::QueryLease lease(data.scene->workspaces);
-        tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}}, lease.get(),
-                                      computed.flight);
+        tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}, data.identity},
+                                      lease.get(), computed.flight, data.native_world);
         computed.flight.flags = data.info.flags;
         tl::calculate_target_damage(weapon, computed.flight.remaining_damage, request->attacker_team,
                                     *request->target, rules, computed.target);

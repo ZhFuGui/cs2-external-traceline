@@ -1,4 +1,5 @@
 #include "ShotSimulator.h"
+#include "NativeStaticWorld.h"
 #include "diagnostics/Error.h"
 #include "profiles/Ruleset.h"
 #include <algorithm>
@@ -58,39 +59,18 @@ float attenuate(float damage, float air_distance, float modifier) {
     return value;
 }
 } // namespace
-float penetration_damage(float damage, float power, float thickness, float minimum_penetration,
-                         const ResolvedMaterial &entry, const ResolvedMaterial &exit) noexcept {
-    float combined = minimum_penetration, damage_fraction = 0.16f;
-    // Native 0xa9d73a skips all same-material overrides when the minimum
-    // intermediate penetration modifier is below 0.1.
-    if (minimum_penetration >= minimum_material_penetration && entry.material == exit.material) {
-        if (entry.material == 'W' || entry.material == 'U') {
-            combined = 3;
-        } else if (entry.material == 'L') {
-            combined = 2;
-        }
-        if (thickness < 6 && (entry.material == 'G' || entry.material == 'Y')) {
-            combined = 3;
-            damage_fraction = 0.05f;
-        }
-        if ((entry.flags & exit.flags & CS2TL_MATERIAL_NATIVE_FLAG13) != 0) {
-            combined = thickness < 6 ? 32.0f : 3.0f;
-            if (thickness < 6) {
-                damage_fraction = 0.00001f;
-            }
-        }
-    }
-    const float inverse = std::max(0.0f, 1.0f / combined);
-    const float power_cost = std::max(0.0f, (3.0f / power) * 1.25f);
-    const float fixed_loss = power_cost * (inverse * 3.0f) + damage * damage_fraction;
-    const float loss = std::max(0.0f, (thickness * thickness * inverse) / 24.0f + fixed_loss);
-    return damage - loss;
-}
 void simulate_remaining_damage(const Scene &scene, const Ray &ray, const WeaponProfile &weapon,
                                const MaterialLookup &materials, QueryWorkspace &workspace,
-                               cs2tl_shot_prediction &out) {
+                               cs2tl_shot_prediction &out, const NativeStaticWorld *native) {
     reset_prediction(out);
     validate(weapon);
+    if (native) {
+        if (!workspace.native) {
+            workspace.native = std::make_unique<NativeWorkspace>();
+        }
+        simulate_native_remaining_damage(*native, ray, weapon, materials, *workspace.native, out);
+        return;
+    }
     auto stopped = [&](uint32_t reason, uint32_t count) {
         out.outcome = CS2TL_SHOT_STOPPED;
         out.remaining_damage = 0;
@@ -176,7 +156,7 @@ void simulate_remaining_damage(const Scene &scene, const Ray &ray, const WeaponP
     out.stop_reason = CS2TL_STOP_NONE;
 }
 void simulate_shot(const Scene &scene, const cs2tl_shot_request &request, cs2tl_shot_result &result,
-                   QueryWorkspace &workspace) {
+                   QueryWorkspace &workspace, const NativeStaticWorld *native) {
     reset_shot_result(result);
     require(request.segment.struct_size >= sizeof(cs2tl_segment) && request.weapon && request.reserved == 0 &&
                 (!request.surface_count || request.surfaces),
@@ -195,7 +175,7 @@ void simulate_shot(const Scene &scene, const cs2tl_shot_request &request, cs2tl_
     cs2tl_shot_prediction computed{};
     computed.struct_size = sizeof(computed);
     simulate_remaining_damage(scene, make_ray(request.segment), *request.weapon,
-                              {{}, {request.surfaces, request.surface_count}}, workspace, computed);
+                              {{}, {request.surfaces, request.surface_count}}, workspace, computed, native);
     result.outcome = computed.outcome;
     result.remaining_damage = computed.remaining_damage;
     result.penetration_count = computed.penetration_count;

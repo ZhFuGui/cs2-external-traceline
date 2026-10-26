@@ -1,4 +1,5 @@
 #pragma once
+#include "ballistics/NativeWorkspace.h"
 #include "geometry/Intersection.h"
 #include <atomic>
 #include <memory>
@@ -46,6 +47,9 @@ struct QueryWorkspace {
     std::vector<uint32_t> candidates, inside;
     std::vector<cs2tl_interval> intervals;
     std::vector<PreciseInterval> precise_intervals;
+    // Allocated only for native ballistic queries; ordinary geometry queries
+    // keep their existing clear path and do not initialize native buffers.
+    std::unique_ptr<NativeWorkspace> native;
     void clear_results() noexcept {
         raw_hits.clear();
         hits.clear();
@@ -58,7 +62,8 @@ struct QueryWorkspace {
         return (raw_hits.capacity() + hits.capacity()) * sizeof(Hit) +
                (candidates.capacity() + inside.capacity()) * sizeof(uint32_t) +
                intervals.capacity() * sizeof(cs2tl_interval) +
-               precise_intervals.capacity() * sizeof(PreciseInterval);
+               precise_intervals.capacity() * sizeof(PreciseInterval) +
+               (native ? native->retained_bytes() : 0);
     }
 };
 std::span<const PreciseInterval> query_precise_intervals_into(const Scene &scene, const Ray &ray,

@@ -1,5 +1,6 @@
 #include "CacheFormat.h"
 #include "FileIO.h"
+#include "PhysicsMetadata.h"
 #include "bvh/Bvh.h"
 #include "diagnostics/Error.h"
 #include <algorithm>
@@ -35,11 +36,11 @@ class Reader {
         const double x = f32(), y = f32(), z = f32();
         return {x, y, z};
     }
-    std::span<const uint8_t> block(uint32_t count) {
+    std::span<const uint8_t> block(uint64_t count) {
         require(position <= data.size() && count <= data.size() - position, CS2TL_CORRUPT_CACHE,
                 "Truncated cache metadata.", position);
-        const auto out = data.subspan(position, count);
-        position += count;
+        const auto out = data.subspan(position, static_cast<size_t>(count));
+        position += static_cast<size_t>(count);
         return out;
     }
 };
@@ -178,21 +179,34 @@ Scene load_cache(const std::filesystem::path &path) {
         native_surface_objects.push_back(reader.u32());
     }
     std::vector<uint8_t> source_winding_flips;
+    PhysicsData physics;
     require(reader.position <= file.size() && metadata_size <= file.size() - reader.position,
             CS2TL_CORRUPT_CACHE, "Invalid native metadata size.");
     const size_t metadata_end = reader.position + static_cast<size_t>(metadata_size);
-    bool winding_seen = false;
+    bool winding_seen = false, physics_seen = false;
     while (reader.position < metadata_end) {
         require(metadata_end - reader.position >= 8, CS2TL_CORRUPT_CACHE, "Truncated metadata chunk header.");
-        const auto kind = reader.u32(), count = reader.u32();
+        const auto encoded_kind = reader.u32();
+        const bool wide = (encoded_kind & wide_chunk_length) != 0;
+        require(!wide || metadata_end - reader.position >= 8, CS2TL_CORRUPT_CACHE,
+                "Truncated wide metadata chunk header.");
+        const auto kind = encoded_kind & ~wide_chunk_length;
+        const uint64_t count = wide ? reader.u64() : reader.u32();
         require(count <= metadata_end - reader.position, CS2TL_CORRUPT_CACHE,
                 "Invalid metadata chunk length.");
-        require(kind == source_winding_chunk, CS2TL_UNSUPPORTED_FORMAT, "Unsupported native metadata chunk.");
-        require(!winding_seen && count == triangles_count, CS2TL_CORRUPT_CACHE,
-                "Invalid source winding chunk.");
-        winding_seen = true;
-        const auto source_flags = reader.block(count);
-        source_winding_flips.assign(source_flags.begin(), source_flags.end());
+        if (kind == source_winding_chunk) {
+            require(!winding_seen && count == triangles_count, CS2TL_CORRUPT_CACHE,
+                    "Invalid source winding chunk.");
+            winding_seen = true;
+            const auto source_flags = reader.block(count);
+            source_winding_flips.assign(source_flags.begin(), source_flags.end());
+        } else if (kind == physics_source_chunk) {
+            require(!physics_seen, CS2TL_CORRUPT_CACHE, "Duplicate physics source metadata.");
+            physics_seen = true;
+            physics = decode_physics_metadata(reader.block(count));
+        } else {
+            throw Error(CS2TL_UNSUPPORTED_FORMAT, "Unsupported native metadata chunk.");
+        }
     }
     reader.position = nodes_position;
     Scene scene;
@@ -205,6 +219,7 @@ Scene load_cache(const std::filesystem::path &path) {
     require((flags & CS2TL_SCENE_HAS_OPEN_GEOMETRY) == scene.flags, CS2TL_CORRUPT_CACHE,
             "Cache topology flag mismatch.", 16);
     scene.flags = flags;
+    scene.physics = std::move(physics);
     scene.fingerprint = source;
     scene.nodes.reserve(nodes_count);
     for (uint32_t i = 0; i < nodes_count; ++i) {
@@ -233,6 +248,14 @@ Scene load_cache(const std::filesystem::path &path) {
         for (const auto &p : scene.primitives) {
             require(p.surface < 0 || static_cast<uint32_t>(p.surface) < hash_count, CS2TL_CORRUPT_CACHE,
                     "Invalid cached primitive surface index.");
+        }
+        for (const auto &collider : scene.physics.colliders) {
+            require(collider.surface < 0 || static_cast<uint32_t>(collider.surface) < hash_count,
+                    CS2TL_CORRUPT_CACHE, "Invalid native collider surface index.");
+            for (const auto &triangle : collider.triangles) {
+                require(triangle.surface < 0 || static_cast<uint32_t>(triangle.surface) < hash_count,
+                        CS2TL_CORRUPT_CACHE, "Invalid native triangle surface index.");
+            }
         }
     }
     validate_tree(scene);

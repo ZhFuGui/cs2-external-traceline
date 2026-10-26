@@ -1,5 +1,6 @@
 #include "CacheFormat.h"
 #include "FileIO.h"
+#include "PhysicsMetadata.h"
 #include "diagnostics/Error.h"
 #include <bit>
 
@@ -28,7 +29,10 @@ class Writer {
 void save_cache(const Scene &scene, const std::filesystem::path &path) {
     const bool curved = !scene.primitives.empty();
     const bool surfaces = !scene.native_surface_objects.empty();
-    const bool native = !scene.source_winding_flips.empty();
+    const bool winding = !scene.source_winding_flips.empty();
+    const bool physics = !scene.physics.colliders.empty() || !scene.physics.attributes.empty();
+    const bool native = winding || physics;
+    const auto physics_bytes = physics ? encode_physics_metadata(scene.physics) : std::vector<uint8_t>{};
     const uint32_t header_size = native ? native_cache_header_size
                                         : (curved || surfaces ? curved_cache_header_size : cache_header_size);
     require(scene.triangles.size() <= UINT32_MAX && scene.nodes.size() <= UINT32_MAX &&
@@ -36,9 +40,10 @@ void save_cache(const Scene &scene, const std::filesystem::path &path) {
                 scene.primitives.size() <= UINT32_MAX && scene.native_surface_objects.size() <= UINT32_MAX &&
                 scene.source_winding_flips.size() <= UINT32_MAX,
             CS2TL_UNSUPPORTED_FORMAT, "Cache counts exceed uint32 representation.");
-    require(!native || scene.source_winding_flips.size() == scene.triangles.size(), CS2TL_INVALID_GEOMETRY,
+    require(!winding || scene.source_winding_flips.size() == scene.triangles.size(), CS2TL_INVALID_GEOMETRY,
             "Source winding count must match the triangle count.");
-    const uint64_t metadata_size = native ? uint64_t(scene.source_winding_flips.size()) + 8 : 0;
+    const uint64_t metadata_size = (winding ? uint64_t(scene.source_winding_flips.size()) + 8 : 0) +
+                                   (physics ? uint64_t(physics_bytes.size()) + 12 : 0);
     const uint64_t payload_size = uint64_t(scene.triangles.size()) * 44 + uint64_t(scene.nodes.size()) * 40 +
                                   uint64_t(scene.order.size()) * 4 +
                                   uint64_t(scene.surface_hashes.size()) * 4 +
@@ -85,11 +90,16 @@ void save_cache(const Scene &scene, const std::filesystem::path &path) {
     for (auto object : scene.native_surface_objects) {
         payload.u32(object);
     }
-    if (native) {
+    if (winding) {
         payload.u32(source_winding_chunk);
         payload.u32(static_cast<uint32_t>(scene.source_winding_flips.size()));
         payload.data.insert(payload.data.end(), scene.source_winding_flips.begin(),
                             scene.source_winding_flips.end());
+    }
+    if (physics) {
+        payload.u32(physics_source_chunk | wide_chunk_length);
+        payload.u64(physics_bytes.size());
+        payload.data.insert(payload.data.end(), physics_bytes.begin(), physics_bytes.end());
     }
     Writer file;
     for (char c : std::string_view("CS2TLBVH")) {

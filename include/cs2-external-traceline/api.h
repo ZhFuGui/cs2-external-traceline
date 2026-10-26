@@ -153,7 +153,9 @@ CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_material_profile(const cs2tl_profile
                                                              cs2tl_material_profile *out, cs2tl_error *error);
 /* Resolves material indices once. The context retains scene and profile data,
  * so their public handles may be destroyed after binding. Finish all context
- * queries before destroying it. No per-query I/O or result history is kept. */
+ * queries before destroying it. No per-query I/O occurs. Each reusable native
+ * workspace may retain exactly one immutable flight result; memory does not
+ * grow with query history, and release_ballistics_memory discards it. */
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_create_ballistics(const cs2tl_scene *scene,
                                                           const cs2tl_profiles *profiles,
                                                           cs2tl_ballistics **out, cs2tl_error *error);
@@ -164,9 +166,15 @@ CS2TL_API cs2tl_status CS2TL_CALL cs2tl_get_ballistics_info(const cs2tl_ballisti
 CS2TL_API cs2tl_status CS2TL_CALL cs2tl_release_ballistics_memory(cs2tl_ballistics *context,
                                                                   cs2tl_error *error);
 /* One supplied A-to-B ray, per bullet/pellet, with no player damage or spread.
- * Reads only immutable inputs and the scene's reusable query workspace. Open,
- * ambiguous or partially traversed solids and missing required materials return
- * an error with NOT_COMPUTED/NaN when out is valid and correctly sized.
+ * v4 caches with complete raw PHYS tags use native static filters, original
+ * mesh winding/trees and hull planes, then event/span/loss rules. B must be a
+ * certified air endpoint. Full static range is queried before B is sampled;
+ * no player collider or missing wall thickness is fabricated. Audited source
+ * transforms are currently identity; unsupported traversed colliders and
+ * conflicting coincident materials return an error. Older caches and untyped
+ * triangles retain the closed-volume path and its conservative error behavior.
+ * Missing required materials and uncertain boundaries return NOT_COMPUTED/NaN
+ * when out is valid and correctly sized. Query scratch is reused, not history.
  * Observe prediction flags for validation scope.
  * Engine stopping rules (including four penetrations) are game behavior, not
  * resource/import limits. */

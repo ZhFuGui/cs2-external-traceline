@@ -207,7 +207,11 @@ enum {
     CS2TL_PREDICTION_BUILD_MISMATCH = 8u,
     /* Scene v1/v2 do not preserve native per-hit interaction bit 13. Its
      * special override is unavailable under the default intact-static policy. */
-    CS2TL_PREDICTION_INTERACTION_FLAGS_UNAVAILABLE = 16u
+    CS2TL_PREDICTION_INTERACTION_FLAGS_UNAVAILABLE = 16u,
+    /* Raw physics source, compiled static filters, and native event/span/loss
+     * rules. Offline outer scene order; conflicting material ties are refused.
+     * This flag does not establish full live FireBullet equivalence. */
+    CS2TL_PREDICTION_NATIVE_STATIC_EVENTS = 128u
 };
 typedef struct cs2tl_shot_prediction {
     uint32_t struct_size, outcome;

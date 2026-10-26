@@ -17,6 +17,8 @@ inline constexpr uint32_t surface_cache_version = 3;
 inline constexpr uint32_t native_cache_version = 4;
 inline constexpr uint32_t native_cache_header_size = 80;
 inline constexpr uint32_t source_winding_chunk = 1;
+inline constexpr uint32_t physics_source_chunk = 2;
+inline constexpr uint32_t wide_chunk_length = 0x80000000u;
 void save_cache(const Scene &scene, const std::filesystem::path &path);
 Scene load_cache(const std::filesystem::path &path);
 } // namespace cs2::traceline

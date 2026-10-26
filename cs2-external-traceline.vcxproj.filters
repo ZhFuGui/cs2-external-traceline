@@ -64,6 +64,9 @@
     <ClCompile Include="src\storage\CacheWriter.cpp">
       <Filter>src\storage</Filter>
     </ClCompile>
+    <ClCompile Include="src\storage\PhysicsMetadata.cpp">
+      <Filter>src\storage</Filter>
+    </ClCompile>
     <ClCompile Include="src\profiles\BallisticsProfiles.cpp">
       <Filter>src\profiles</Filter>
     </ClCompile>
@@ -71,6 +74,30 @@
       <Filter>src\storage</Filter>
     </ClCompile>
     <ClCompile Include="src\ballistics\ShotSimulator.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeSpans.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeCollisionFilter.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativePhysicsAttributes.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeQueryExtent.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeDamage.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeStaticWorld.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeGeometry.cpp">
+      <Filter>src\ballistics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeMesh.cpp">
       <Filter>src\ballistics</Filter>
     </ClCompile>
     <ClCompile Include="src\ballistics\TargetDamage.cpp">
@@ -102,6 +129,9 @@
     <ClInclude Include="src\scene\Scene.h">
       <Filter>src\scene</Filter>
     </ClInclude>
+    <ClInclude Include="src\scene\PhysicsData.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
     <ClInclude Include="src\bvh\Bvh.h">
       <Filter>src\bvh</Filter>
     </ClInclude>
@@ -117,6 +147,9 @@
     <ClInclude Include="src\storage\CacheFormat.h">
       <Filter>src\storage</Filter>
     </ClInclude>
+    <ClInclude Include="src\storage\PhysicsMetadata.h">
+      <Filter>src\storage</Filter>
+    </ClInclude>
     <ClInclude Include="src\ballistics\WeaponProfile.h">
       <Filter>src\ballistics</Filter>
     </ClInclude>
@@ -124,6 +157,36 @@
       <Filter>src\ballistics</Filter>
     </ClInclude>
     <ClInclude Include="src\ballistics\ShotSimulator.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeSpans.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeCollisionFilter.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativePhysicsAttributes.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeQueryExtent.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeDamage.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeStaticWorld.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeWorkspace.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeGeometry.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeMath.h">
+      <Filter>src\ballistics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ballistics\NativeMesh.h">
       <Filter>src\ballistics</Filter>
     </ClInclude>
     <ClInclude Include="src\ballistics\TargetDamage.h">

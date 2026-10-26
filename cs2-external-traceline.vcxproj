@@ -54,7 +54,28 @@
     <ClCompile Include="src\storage\FileIO.cpp" />
     <ClCompile Include="src\storage\CacheReader.cpp" />
     <ClCompile Include="src\storage\CacheWriter.cpp" />
+    <ClCompile Include="src\storage\PhysicsMetadata.cpp" />
     <ClCompile Include="src\ballistics\ShotSimulator.cpp" />
+    <ClCompile Include="src\ballistics\NativeSpans.cpp">
+      <FloatingPointModel>Strict</FloatingPointModel>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeCollisionFilter.cpp" />
+    <ClCompile Include="src\ballistics\NativePhysicsAttributes.cpp" />
+    <ClCompile Include="src\ballistics\NativeQueryExtent.cpp">
+      <FloatingPointModel>Strict</FloatingPointModel>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeDamage.cpp">
+      <FloatingPointModel>Strict</FloatingPointModel>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeStaticWorld.cpp">
+      <FloatingPointModel>Strict</FloatingPointModel>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeGeometry.cpp">
+      <FloatingPointModel>Strict</FloatingPointModel>
+    </ClCompile>
+    <ClCompile Include="src\ballistics\NativeMesh.cpp">
+      <FloatingPointModel>Strict</FloatingPointModel>
+    </ClCompile>
     <ClCompile Include="src\ballistics\TargetDamage.cpp" />
     <ClCompile Include="src\profiles\BallisticsProfiles.cpp" />
     <ClCompile Include="src\storage\ProfileReader.cpp" />
@@ -68,14 +89,26 @@
     <ClInclude Include="src\geometry\Aabb.h" />
     <ClInclude Include="src\geometry\Intersection.h" />
     <ClInclude Include="src\scene\Scene.h" />
+    <ClInclude Include="src\scene\PhysicsData.h" />
     <ClInclude Include="src\bvh\Bvh.h" />
     <ClInclude Include="src\trace\TraceQuery.h" />
     <ClInclude Include="src\import\PhysicsTextReader.h" />
     <ClInclude Include="src\storage\FileIO.h" />
     <ClInclude Include="src\storage\CacheFormat.h" />
+    <ClInclude Include="src\storage\PhysicsMetadata.h" />
     <ClInclude Include="src\ballistics\WeaponProfile.h" />
     <ClInclude Include="src\ballistics\SurfaceProfile.h" />
     <ClInclude Include="src\ballistics\ShotSimulator.h" />
+    <ClInclude Include="src\ballistics\NativeSpans.h" />
+    <ClInclude Include="src\ballistics\NativeCollisionFilter.h" />
+    <ClInclude Include="src\ballistics\NativePhysicsAttributes.h" />
+    <ClInclude Include="src\ballistics\NativeQueryExtent.h" />
+    <ClInclude Include="src\ballistics\NativeDamage.h" />
+    <ClInclude Include="src\ballistics\NativeStaticWorld.h" />
+    <ClInclude Include="src\ballistics\NativeWorkspace.h" />
+    <ClInclude Include="src\ballistics\NativeGeometry.h" />
+    <ClInclude Include="src\ballistics\NativeMath.h" />
+    <ClInclude Include="src\ballistics\NativeMesh.h" />
     <ClInclude Include="src\ballistics\TargetDamage.h" />
     <ClInclude Include="src\profiles\Ruleset.h" />
     <ClInclude Include="src\profiles\BallisticsProfiles.h" />
