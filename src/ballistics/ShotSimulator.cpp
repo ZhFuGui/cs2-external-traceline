@@ -61,7 +61,9 @@ float attenuate(float damage, float air_distance, float modifier) {
 float penetration_damage(float damage, float power, float thickness, float minimum_penetration,
                          const ResolvedMaterial &entry, const ResolvedMaterial &exit) noexcept {
     float combined = minimum_penetration, damage_fraction = 0.16f;
-    if (entry.material == exit.material) {
+    // Native 0xa9d73a skips all same-material overrides when the minimum
+    // intermediate penetration modifier is below 0.1.
+    if (minimum_penetration >= minimum_material_penetration && entry.material == exit.material) {
         if (entry.material == 'W' || entry.material == 'U') {
             combined = 3;
         } else if (entry.material == 'L') {
@@ -149,7 +151,10 @@ void simulate_remaining_damage(const Scene &scene, const Ray &ray, const WeaponP
             stopped(CS2TL_STOP_PENETRATION_POWER, penetrations);
             return;
         }
-        if (minimum_penetration < minimum_material_penetration) {
+        // Native 0xa9d300..0xa9d333 disables penetration from the entry
+        // material. A lower intermediate/exit modifier increases loss below;
+        // it does not independently disable the penetration budget.
+        if (entry.penetration < minimum_material_penetration) {
             stopped(CS2TL_STOP_MATERIAL, penetrations);
             return;
         }
