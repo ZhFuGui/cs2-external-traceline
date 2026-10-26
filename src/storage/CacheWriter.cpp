@@ -28,15 +28,22 @@ class Writer {
 void save_cache(const Scene &scene, const std::filesystem::path &path) {
     const bool curved = !scene.primitives.empty();
     const bool surfaces = !scene.native_surface_objects.empty();
-    const uint32_t header_size = curved || surfaces ? curved_cache_header_size : cache_header_size;
+    const bool native = !scene.source_winding_flips.empty();
+    const uint32_t header_size = native ? native_cache_header_size
+                                        : (curved || surfaces ? curved_cache_header_size : cache_header_size);
     require(scene.triangles.size() <= UINT32_MAX && scene.nodes.size() <= UINT32_MAX &&
                 scene.order.size() <= UINT32_MAX && scene.surface_hashes.size() <= UINT32_MAX &&
-                scene.primitives.size() <= UINT32_MAX && scene.native_surface_objects.size() <= UINT32_MAX,
+                scene.primitives.size() <= UINT32_MAX && scene.native_surface_objects.size() <= UINT32_MAX &&
+                scene.source_winding_flips.size() <= UINT32_MAX,
             CS2TL_UNSUPPORTED_FORMAT, "Cache counts exceed uint32 representation.");
-    const uint64_t payload_size =
-        uint64_t(scene.triangles.size()) * 44 + uint64_t(scene.nodes.size()) * 40 +
-        uint64_t(scene.order.size()) * 4 + uint64_t(scene.surface_hashes.size()) * 4 +
-        uint64_t(scene.primitives.size()) * 84 + uint64_t(scene.native_surface_objects.size()) * 4;
+    require(!native || scene.source_winding_flips.size() == scene.triangles.size(), CS2TL_INVALID_GEOMETRY,
+            "Source winding count must match the triangle count.");
+    const uint64_t metadata_size = native ? uint64_t(scene.source_winding_flips.size()) + 8 : 0;
+    const uint64_t payload_size = uint64_t(scene.triangles.size()) * 44 + uint64_t(scene.nodes.size()) * 40 +
+                                  uint64_t(scene.order.size()) * 4 +
+                                  uint64_t(scene.surface_hashes.size()) * 4 +
+                                  uint64_t(scene.primitives.size()) * 84 +
+                                  uint64_t(scene.native_surface_objects.size()) * 4 + metadata_size;
     if (payload_size + header_size > large_file_notice) {
         warn("Large BVH cache (>512 MiB); writing continues.");
     }
@@ -78,11 +85,18 @@ void save_cache(const Scene &scene, const std::filesystem::path &path) {
     for (auto object : scene.native_surface_objects) {
         payload.u32(object);
     }
+    if (native) {
+        payload.u32(source_winding_chunk);
+        payload.u32(static_cast<uint32_t>(scene.source_winding_flips.size()));
+        payload.data.insert(payload.data.end(), scene.source_winding_flips.begin(),
+                            scene.source_winding_flips.end());
+    }
     Writer file;
     for (char c : std::string_view("CS2TLBVH")) {
         file.data.push_back(static_cast<uint8_t>(c));
     }
-    file.u32(surfaces ? surface_cache_version : (curved ? curved_cache_version : cache_version));
+    file.u32(native ? native_cache_version
+                    : (surfaces ? surface_cache_version : (curved ? curved_cache_version : cache_version)));
     file.u32(header_size);
     file.u32(scene.flags);
     file.u32(scene.leaf_size);
@@ -93,9 +107,12 @@ void save_cache(const Scene &scene, const std::filesystem::path &path) {
     file.u64(scene.fingerprint);
     file.u64(payload.data.size());
     file.u64(fingerprint(payload.data));
-    if (curved || surfaces) {
+    if (curved || surfaces || native) {
         file.u32(static_cast<uint32_t>(scene.primitives.size()));
         file.u32(static_cast<uint32_t>(scene.native_surface_objects.size()));
+    }
+    if (native) {
+        file.u64(metadata_size);
     }
     payload.data.insert(payload.data.begin(), file.data.begin(), file.data.end());
     atomic_write(path, payload.data);

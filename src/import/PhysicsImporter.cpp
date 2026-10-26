@@ -315,8 +315,9 @@ class Importer {
                         "Primitive surface identifier exceeds surface property table.");
             }
         }
+        std::vector<uint8_t> source_winding_flips(triangles.size());
         auto scene = build_scene(std::move(triangles), options, true, std::move(primitives), false,
-                                 std::move(native_surface_objects));
+                                 std::move(native_surface_objects), std::move(source_winding_flips));
         scene.surface_hashes = std::move(hashes);
         if (approximate) {
             scene.flags |= CS2TL_SCENE_APPROXIMATE;

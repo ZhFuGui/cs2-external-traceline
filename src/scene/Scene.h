@@ -91,10 +91,14 @@ struct Scene {
     // Explicit m_meshes provenance from physics text. Legacy caches and raw
     // triangle APIs do not establish native surface-collider semantics.
     std::vector<uint32_t> native_surface_objects;
+    // Empty for legacy/untyped geometry. Otherwise one 0/1 byte per triangle
+    // recovers its pre-repair source winding without changing geometric queries.
+    std::vector<uint8_t> source_winding_flips;
     bool deep_bvh{}; // Unusually deep external caches use traversal stack spill.
     bool extended_queries{};
 };
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options = {}, bool build_acceleration = true,
                   std::vector<Primitive> primitives = {}, bool preserve_orientation = false,
-                  std::vector<uint32_t> native_surface_objects = {});
+                  std::vector<uint32_t> native_surface_objects = {},
+                  std::vector<uint8_t> source_winding_flips = {});
 } // namespace cs2::traceline

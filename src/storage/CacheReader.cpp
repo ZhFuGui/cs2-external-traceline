@@ -35,6 +35,13 @@ class Reader {
         const double x = f32(), y = f32(), z = f32();
         return {x, y, z};
     }
+    std::span<const uint8_t> block(uint32_t count) {
+        require(position <= data.size() && count <= data.size() - position, CS2TL_CORRUPT_CACHE,
+                "Truncated cache metadata.", position);
+        const auto out = data.subspan(position, count);
+        position += count;
+        return out;
+    }
 };
 void validate_tree(Scene &scene) {
     const auto count = static_cast<uint32_t>(scene.triangles.size());
@@ -100,24 +107,34 @@ Scene load_cache(const std::filesystem::path &path) {
     const uint32_t version = reader.u32(), header_size = reader.u32();
     require((version == cache_version && header_size == cache_header_size) ||
                 ((version == curved_cache_version || version == surface_cache_version) &&
-                 header_size == curved_cache_header_size),
+                 header_size == curved_cache_header_size) ||
+                (version == native_cache_version && header_size == native_cache_header_size),
             CS2TL_UNSUPPORTED_FORMAT, "Unsupported cache version.", 8);
     const uint32_t flags = reader.u32(), leaf_size = reader.u32();
     const uint32_t triangles_count = reader.u32(), nodes_count = reader.u32(), order_count = reader.u32(),
                    hash_count = reader.u32();
     const uint64_t source = reader.u64(), payload_size = reader.u64(), checksum = reader.u64();
     uint32_t primitive_count = 0, native_surface_count = 0;
-    if (version == curved_cache_version || version == surface_cache_version) {
+    uint64_t metadata_size = 0;
+    if (version == curved_cache_version || version == surface_cache_version ||
+        version == native_cache_version) {
         primitive_count = reader.u32();
         native_surface_count = reader.u32();
-        require(version == surface_cache_version || native_surface_count == 0, CS2TL_CORRUPT_CACHE,
+        require(version != curved_cache_version || native_surface_count == 0, CS2TL_CORRUPT_CACHE,
                 "Invalid cache reserved field.");
+    }
+    if (version == native_cache_version) {
+        metadata_size = reader.u64();
     }
     require((flags & ~(CS2TL_SCENE_APPROXIMATE | CS2TL_SCENE_HAS_OPEN_GEOMETRY)) == 0 && leaf_size >= 1,
             CS2TL_CORRUPT_CACHE, "Invalid cache flags/build options.", 16);
-    const uint64_t expected = uint64_t(triangles_count) * 44 + uint64_t(nodes_count) * 40 +
-                              uint64_t(order_count) * 4 + uint64_t(hash_count) * 4 +
-                              uint64_t(primitive_count) * 84 + uint64_t(native_surface_count) * 4;
+    const uint64_t geometry_size = uint64_t(triangles_count) * 44 + uint64_t(nodes_count) * 40 +
+                                   uint64_t(order_count) * 4 + uint64_t(hash_count) * 4 +
+                                   uint64_t(primitive_count) * 84 + uint64_t(native_surface_count) * 4;
+    require(file.size() >= header_size && geometry_size <= file.size() - header_size &&
+                metadata_size <= file.size() - header_size - geometry_size,
+            CS2TL_CORRUPT_CACHE, "Invalid cache metadata/count lengths.", 24);
+    const uint64_t expected = geometry_size + metadata_size;
     require(nodes_count <= uint64_t(triangles_count) * 2 && order_count == triangles_count &&
                 native_surface_count <= triangles_count && uint64_t(hash_count) <= uint64_t(INT32_MAX) + 1 &&
                 expected == payload_size && file.size() >= header_size &&
@@ -160,11 +177,28 @@ Scene load_cache(const std::filesystem::path &path) {
     for (uint32_t i = 0; i < native_surface_count; ++i) {
         native_surface_objects.push_back(reader.u32());
     }
+    std::vector<uint8_t> source_winding_flips;
+    require(reader.position <= file.size() && metadata_size <= file.size() - reader.position,
+            CS2TL_CORRUPT_CACHE, "Invalid native metadata size.");
+    const size_t metadata_end = reader.position + static_cast<size_t>(metadata_size);
+    bool winding_seen = false;
+    while (reader.position < metadata_end) {
+        require(metadata_end - reader.position >= 8, CS2TL_CORRUPT_CACHE, "Truncated metadata chunk header.");
+        const auto kind = reader.u32(), count = reader.u32();
+        require(count <= metadata_end - reader.position, CS2TL_CORRUPT_CACHE,
+                "Invalid metadata chunk length.");
+        require(kind == source_winding_chunk, CS2TL_UNSUPPORTED_FORMAT, "Unsupported native metadata chunk.");
+        require(!winding_seen && count == triangles_count, CS2TL_CORRUPT_CACHE,
+                "Invalid source winding chunk.");
+        winding_seen = true;
+        const auto source_flags = reader.block(count);
+        source_winding_flips.assign(source_flags.begin(), source_flags.end());
+    }
     reader.position = nodes_position;
     Scene scene;
     try {
         scene = build_scene(std::move(triangles), BuildOptions{0, leaf_size}, false, std::move(primitives),
-                            true, std::move(native_surface_objects));
+                            true, std::move(native_surface_objects), std::move(source_winding_flips));
     } catch (const Error &e) {
         throw Error(CS2TL_CORRUPT_CACHE, e.what(), reader.position);
     }

@@ -70,7 +70,7 @@ uint32_t bits(double value) {
 
 Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool build_acceleration,
                   std::vector<Primitive> primitives, bool preserve_orientation,
-                  std::vector<uint32_t> native_surface_objects) {
+                  std::vector<uint32_t> native_surface_objects, std::vector<uint8_t> source_winding_flips) {
     require(triangles.size() <= UINT32_MAX, CS2TL_UNSUPPORTED_FORMAT,
             "Triangle indices exceed uint32 representation.");
     if (triangles.size() > large_triangle_notice) {
@@ -81,6 +81,12 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
         warn("Large BVH leaf size (>64) may reduce query performance; processing continues.");
     }
     Scene scene;
+    require(source_winding_flips.empty() || source_winding_flips.size() == triangles.size(),
+            CS2TL_INVALID_GEOMETRY, "Source winding count must match the triangle count.");
+    require(std::all_of(source_winding_flips.begin(), source_winding_flips.end(),
+                        [](uint8_t value) { return value <= 1; }),
+            CS2TL_INVALID_GEOMETRY, "Invalid source winding flag.");
+    scene.source_winding_flips = std::move(source_winding_flips);
     require(std::is_sorted(native_surface_objects.begin(), native_surface_objects.end()) &&
                 std::adjacent_find(native_surface_objects.begin(), native_surface_objects.end()) ==
                     native_surface_objects.end() &&
@@ -217,6 +223,9 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
         for (uint32_t i = 0; i < count; ++i) {
             if (!preserve_orientation && flips[i] == 1) {
                 std::swap(tris[i].b, tris[i].c);
+                if (!scene.source_winding_flips.empty()) {
+                    scene.source_winding_flips[i] ^= 1;
+                }
             }
         }
         for (auto &solid : scene.solids) {
@@ -235,6 +244,9 @@ Scene build_scene(std::vector<Triangle> triangles, BuildOptions options, bool bu
                             "Cached closed solid has inward winding.");
                     for (auto index : solid.triangles) {
                         std::swap(tris[index].b, tris[index].c);
+                        if (!scene.source_winding_flips.empty()) {
+                            scene.source_winding_flips[index] ^= 1;
+                        }
                     }
                 }
             }
