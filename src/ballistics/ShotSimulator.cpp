@@ -1,9 +1,11 @@
 #include "ShotSimulator.h"
+#include "NativeMath.h"
 #include "NativeStaticWorld.h"
 #include "diagnostics/Error.h"
 #include "profiles/Ruleset.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace cs2::traceline {
@@ -68,7 +70,21 @@ void simulate_remaining_damage(const Scene &scene, const Ray &ray, const WeaponP
         if (!workspace.native) {
             workspace.native = std::make_unique<NativeWorkspace>();
         }
+        auto &cached = workspace.native->flight;
+        const auto float_control = native_f32::control();
+        static_assert(sizeof(Ray) == 10 * sizeof(double));
+        if (materials.cache_identity && cached.identity == materials.cache_identity &&
+            cached.weapon == weapon.weapon_id && cached.mode == weapon.fire_mode &&
+            cached.float_control == float_control && std::memcmp(&cached.ray, &ray, sizeof(ray)) == 0) {
+            const auto size = out.struct_size;
+            out = cached.result;
+            out.struct_size = size;
+            return;
+        }
         simulate_native_remaining_damage(*native, ray, weapon, materials, *workspace.native, out);
+        if (materials.cache_identity) {
+            cached = {ray, out, materials.cache_identity, weapon.weapon_id, weapon.fire_mode, float_control};
+        }
         return;
     }
     auto stopped = [&](uint32_t reason, uint32_t count) {
