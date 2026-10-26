@@ -58,6 +58,32 @@ float attenuate(float damage, float air_distance, float modifier) {
     return value;
 }
 } // namespace
+float penetration_damage(float damage, float power, float thickness, float minimum_penetration,
+                         const ResolvedMaterial &entry, const ResolvedMaterial &exit) noexcept {
+    float combined = minimum_penetration, damage_fraction = 0.16f;
+    if (entry.material == exit.material) {
+        if (entry.material == 'W' || entry.material == 'U') {
+            combined = 3;
+        } else if (entry.material == 'L') {
+            combined = 2;
+        }
+        if (thickness < 6 && (entry.material == 'G' || entry.material == 'Y')) {
+            combined = 3;
+            damage_fraction = 0.05f;
+        }
+        if ((entry.flags & exit.flags & CS2TL_MATERIAL_NATIVE_FLAG13) != 0) {
+            combined = thickness < 6 ? 32.0f : 3.0f;
+            if (thickness < 6) {
+                damage_fraction = 0.00001f;
+            }
+        }
+    }
+    const float inverse = std::max(0.0f, 1.0f / combined);
+    const float power_cost = std::max(0.0f, (3.0f / power) * 1.25f);
+    const float fixed_loss = power_cost * (inverse * 3.0f) + damage * damage_fraction;
+    const float loss = std::max(0.0f, (thickness * thickness * inverse) / 24.0f + fixed_loss);
+    return damage - loss;
+}
 void simulate_remaining_damage(const Scene &scene, const Ray &ray, const WeaponProfile &weapon,
                                const MaterialLookup &materials, QueryWorkspace &workspace,
                                cs2tl_shot_prediction &out) {
@@ -128,29 +154,8 @@ void simulate_remaining_damage(const Scene &scene, const Ray &ray, const WeaponP
             return;
         }
         const float thickness = static_cast<float>(end - begin.entry_distance);
-        float combined = minimum_penetration, damage_fraction = 0.16f;
-        if (entry.material == exit.material) {
-            if (entry.material == 'W' || entry.material == 'U') {
-                combined = 3;
-            } else if (entry.material == 'L') {
-                combined = 2;
-            }
-            if (thickness < 6 && (entry.material == 'G' || entry.material == 'Y')) {
-                combined = 3;
-                damage_fraction = 0.05f;
-            }
-            if ((entry.flags & exit.flags & CS2TL_MATERIAL_NATIVE_FLAG13) != 0) {
-                combined = thickness < 6 ? 32.0f : 3.0f;
-                if (thickness < 6) {
-                    damage_fraction = 0.00001f;
-                }
-            }
-        }
-        const float inverse = std::max(0.0f, 1.0f / combined);
-        const float power_cost = std::max(0.0f, (3.0f / weapon.penetration_power) * 1.25f);
-        const float fixed_loss = power_cost * (inverse * 3.0f) + damage * damage_fraction;
-        const float loss = std::max(0.0f, (thickness * thickness * inverse) / 24.0f + fixed_loss);
-        damage -= loss;
+        damage =
+            penetration_damage(damage, weapon.penetration_power, thickness, minimum_penetration, entry, exit);
         if (damage < 1) {
             stopped(CS2TL_STOP_DAMAGE, penetrations);
             return;
