@@ -1,6 +1,7 @@
-# Default deny: only DLL sources and Visual Studio build inputs are versioned.
+# Default deny: only README, DLL sources and Visual Studio build inputs are versioned.
 /*
 !/.gitignore
+!/README.md
 !/.editorconfig
 !/.clang-format
 !/cs2-external-traceline.sln
