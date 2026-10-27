@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 
 namespace tl = cs2::traceline;
 namespace {
@@ -577,6 +578,26 @@ cs2tl_status CS2TL_CALL cs2tl_get_ballistics_info(const cs2tl_ballistics *contex
         *out = checked_ballistics(context).info;
     });
 }
+namespace {
+struct RemainingDamageQuery {
+    const tl::WeaponProfile &weapon;
+    tl::Ray ray;
+};
+RemainingDamageQuery prepare_remaining_damage(const cs2tl_ballistics &data,
+                                               const cs2tl_remaining_damage_request &request) {
+    tl::require(request.reserved == 0, CS2TL_INVALID_ARGUMENT, "Unknown shot request flags.");
+    tl::require(data.profiles->info.ruleset_version == CS2TL_RULESET_CS2_STATIC_V1, CS2TL_NOT_IMPLEMENTED,
+                "Profile package requests an unsupported damage ruleset.");
+    const auto &weapon = data.profiles->weapon(request.weapon_id, request.fire_mode).profile;
+    return {weapon, ray(&request.segment)};
+}
+void remaining_damage(const cs2tl_ballistics &data, const RemainingDamageQuery &query,
+                      tl::QueryWorkspace &workspace, cs2tl_shot_prediction &out) {
+    tl::simulate_remaining_damage(data.scene->data, query.ray, query.weapon,
+                                  {data.materials, {}, data.identity}, workspace, out, data.native_world);
+    out.flags = data.info.flags;
+}
+} // namespace
 cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(const cs2tl_ballistics *context,
                                                          const cs2tl_remaining_damage_request *request,
                                                          cs2tl_shot_prediction *out, cs2tl_error *error) {
@@ -587,15 +608,35 @@ cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(const cs2tl_ballistics 
         sized(request);
         sized(out);
         const auto &data = checked_ballistics(context);
-        tl::require(request->reserved == 0, CS2TL_INVALID_ARGUMENT, "Unknown shot request flags.");
-        tl::require(data.profiles->info.ruleset_version == CS2TL_RULESET_CS2_STATIC_V1, CS2TL_NOT_IMPLEMENTED,
-                    "Profile package requests an unsupported damage ruleset.");
-        const auto &weapon = data.profiles->weapon(request->weapon_id, request->fire_mode).profile;
-        const auto query = ray(&request->segment);
+        const auto query = prepare_remaining_damage(data, *request);
         tl::QueryLease lease(data.scene->workspaces);
-        tl::simulate_remaining_damage(data.scene->data, query, weapon, {data.materials, {}, data.identity},
-                                      lease.get(), *out, data.native_world);
-        out->flags = data.info.flags;
+        remaining_damage(data, query, lease.get(), *out);
+    });
+}
+cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage_batch(
+    const cs2tl_ballistics *context, const cs2tl_remaining_damage_request *requests, uint32_t count,
+    cs2tl_shot_prediction *out, cs2tl_status *item_status, cs2tl_error *item_errors, cs2tl_error *error) {
+    return guarded(error, [&] {
+        const auto &data = checked_ballistics(context);
+        tl::require(count == 0 || (requests && out && item_status), CS2TL_INVALID_ARGUMENT,
+                    "Nonempty batch requires request, prediction and status arrays.");
+        // No result/input arrays are copied or retained. A lazy lease avoids
+        // allocating scratch for empty batches or batches with only bad input.
+        std::optional<tl::QueryLease> lease;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (out[i].struct_size >= sizeof(out[i])) {
+                tl::reset_prediction(out[i]);
+            }
+            item_status[i] = guarded(item_errors ? &item_errors[i] : nullptr, [&] {
+                sized(&requests[i]);
+                sized(&out[i]);
+                const auto query = prepare_remaining_damage(data, requests[i]);
+                if (!lease) {
+                    lease.emplace(data.scene->workspaces);
+                }
+                remaining_damage(data, query, lease->get(), out[i]);
+            });
+        }
     });
 }
 namespace {

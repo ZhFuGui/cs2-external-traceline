@@ -182,6 +182,24 @@ CS2TL_API cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage(
     const cs2tl_ballistics *context, const cs2tl_remaining_damage_request *request,
     cs2tl_shot_prediction *out, cs2tl_error *error);
 
+/* Synchronous, input-order scalar-equivalent queries on one immutable context.
+ * All arrays are caller-owned, contiguous and nonoverlapping, with count
+ * elements. For count>0, requests/out/item_status are required; item_errors
+ * may be NULL. Initialize every out.struct_size and, if supplied, every
+ * item_errors.struct_size exactly as for the scalar API. No array pointer is
+ * retained. count=0 accepts NULL arrays but still requires a valid context.
+ * OK means the batch was processed, not that all items succeeded. Each
+ * item_status is the scalar status; a failed, correctly sized out preserves
+ * scalar NOT_COMPUTED/NaN semantics, never a fabricated zero. Later items run
+ * after failures. Optional item_errors carry the same scalar diagnostics.
+ * Invalid batch arguments leave all item arrays untouched; error describes
+ * only this batch-level failure. One reusable workspace is leased per batch;
+ * callers may split work into small batches and cancel between calls. Context
+ * lifetime/concurrency and release_memory rules are the same as scalar calls. */
+CS2TL_API cs2tl_status CS2TL_CALL cs2tl_calculate_remaining_damage_batch(
+    const cs2tl_ballistics *context, const cs2tl_remaining_damage_request *requests, uint32_t count,
+    cs2tl_shot_prediction *out, cs2tl_status *item_status, cs2tl_error *item_errors, cs2tl_error *error);
+
 /* Defaults come from the binary-audited build and carry no LIVE_SNAPSHOT flag.
  * Replace fields with actual match values and set LIVE_SNAPSHOT when verified.
  * NULL rules select these same defaults; predictions mark assumed rules. */
